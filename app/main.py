@@ -2,6 +2,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .routers import auth, recommendations, mallas, cursos, admin
 from .database import engine, Base
+from .config import settings
+import os
 
 # Crear tablas
 Base.metadata.create_all(bind=engine)
@@ -12,14 +14,11 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS
+# CORS - Usar variable de entorno ALLOWED_ORIGINS
+allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173", 
-        "http://localhost:5174",
-        "http://localhost:3000"
-    ],  # Frontend URLs
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
