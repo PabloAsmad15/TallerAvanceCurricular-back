@@ -3,10 +3,19 @@ from fastapi.middleware.cors import CORSMiddleware
 from .routers import auth, recommendations, mallas, cursos, admin
 from .database import engine, Base
 from .config import settings
+from .firebase_config import initialize_firebase
 import os
 
 # Crear tablas
 Base.metadata.create_all(bind=engine)
+
+# Inicializar Firebase
+try:
+    initialize_firebase()
+    print("✅ Firebase inicializado correctamente")
+except Exception as e:
+    print(f"⚠️  Error inicializando Firebase: {e}")
+    print("El sistema funcionará sin Firebase Auth")
 
 app = FastAPI(
     title="Sistema de Recomendación Curricular UPAO",

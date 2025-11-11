@@ -15,8 +15,23 @@ from ..utils.security import (
 )
 from ..utils.email import send_password_reset_email, send_welcome_email
 from ..config import settings
+from ..firebase_config import verify_firebase_token
+from pydantic import BaseModel
 
 router = APIRouter()
+
+
+# Schemas para Firebase
+class FirebaseLoginRequest(BaseModel):
+    firebaseToken: str
+
+class FirebaseRegisterRequest(BaseModel):
+    firebaseToken: str
+    firebaseUid: str
+    email: str
+    nombre: str
+    apellido: str
+    tipo: str = "estudiante"
 
 
 @router.post("/register", response_model=UsuarioResponse, status_code=status.HTTP_201_CREATED)
@@ -215,3 +230,93 @@ async def reset_password(
     db.commit()
     
     return {"message": "Contraseña cambiada exitosamente"}
+
+
+@router.post("/firebase-login", response_model=UsuarioResponse)
+async def firebase_login(request: FirebaseLoginRequest, db: Session = Depends(get_db)):
+    """Login con Firebase Auth - Verificar token y retornar datos del usuario de PostgreSQL"""
+    
+    # 1. Verificar token de Firebase
+    firebase_user = await verify_firebase_token(request.firebaseToken)
+    firebase_uid = firebase_user.get('uid')
+    email = firebase_user.get('email')
+    
+    if not email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El token de Firebase no contiene un email"
+        )
+    
+    # 2. Buscar usuario en PostgreSQL por email
+    usuario = db.query(Usuario).filter(Usuario.email == email).first()
+    
+    if not usuario:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Usuario no encontrado. Debes registrarte primero."
+        )
+    
+    if not usuario.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Usuario inactivo"
+        )
+    
+    # 3. Actualizar firebase_uid si no existe
+    if not usuario.firebase_uid:
+        usuario.firebase_uid = firebase_uid
+        db.commit()
+        db.refresh(usuario)
+    
+    return usuario
+
+
+@router.post("/firebase-register", response_model=UsuarioResponse, status_code=status.HTTP_201_CREATED)
+async def firebase_register(request: FirebaseRegisterRequest, db: Session = Depends(get_db)):
+    """Registro con Firebase Auth - Crear usuario en PostgreSQL después de registro en Firebase"""
+    
+    # 1. Verificar token de Firebase
+    firebase_user = await verify_firebase_token(request.firebaseToken)
+    firebase_uid = firebase_user.get('uid')
+    
+    # 2. Verificar que el UID del token coincida con el enviado
+    if firebase_uid != request.firebaseUid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El UID de Firebase no coincide con el token"
+        )
+    
+    # 3. Verificar si el usuario ya existe
+    existing_user = db.query(Usuario).filter(Usuario.email == request.email).first()
+    if existing_user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El correo electrónico ya está registrado"
+        )
+    
+    # 4. Crear usuario en PostgreSQL
+    # No necesitamos password_hash porque Firebase maneja la autenticación
+    nuevo_usuario = Usuario(
+        email=request.email,
+        nombre=request.nombre,
+        apellido=request.apellido,
+        firebase_uid=firebase_uid,
+        password_hash="",  # Firebase maneja las contraseñas
+        is_active=True
+    )
+    
+    # Asignar rol de admin si el tipo es admin
+    if request.tipo == "admin":
+        nuevo_usuario.is_admin = True
+    
+    db.add(nuevo_usuario)
+    db.commit()
+    db.refresh(nuevo_usuario)
+    
+    # 5. Enviar email de bienvenida (sin bloquear)
+    try:
+        await send_welcome_email(request.email, request.nombre)
+    except Exception as e:
+        print(f"Error enviando email de bienvenida: {e}")
+    
+    return nuevo_usuario
