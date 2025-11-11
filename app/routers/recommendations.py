@@ -6,7 +6,7 @@ import time
 from pydantic import BaseModel
 from ..database import get_db
 from ..schemas import RecomendacionRequest, RecomendacionResponse, CursoRecomendado
-from ..models import Usuario, Recomendacion, Curso, Malla, Prerequisito, CursoAprobado
+from ..models import Usuario, Recomendacion, Curso, Malla, Prerequisito
 from ..utils.security import get_current_active_user
 from ..services.ai_agent import ai_agent
 from ..algorithms.constraint_programming import ConstraintProgrammingSolver
@@ -315,6 +315,24 @@ def obtener_mapa_convalidaciones(db: Session) -> dict:
     return {}
 
 
+def obtener_cursos_aprobados_usuario(db: Session, usuario_id: int) -> List[str]:
+    """
+    Obtiene los cursos aprobados del usuario desde su última recomendación
+    Si no tiene recomendaciones, retorna lista vacía
+    """
+    ultima_recomendacion = db.query(Recomendacion).filter(
+        Recomendacion.usuario_id == usuario_id
+    ).order_by(Recomendacion.created_at.desc()).first()
+    
+    if not ultima_recomendacion or not ultima_recomendacion.cursos_aprobados:
+        return []
+    
+    try:
+        return json.loads(ultima_recomendacion.cursos_aprobados)
+    except:
+        return []
+
+
 @router.post("/prolog", response_model=AlgoritmoResponse)
 async def recomendar_con_prolog(
     db: Session = Depends(get_db),
@@ -352,11 +370,7 @@ async def recomendar_con_prolog(
             )
         
         # Obtener cursos aprobados del usuario
-        cursos_aprobados_db = db.query(CursoAprobado).filter(
-            CursoAprobado.usuario_id == current_user.id
-        ).all()
-        
-        cursos_aprobados = [ca.curso_codigo for ca in cursos_aprobados_db]
+        cursos_aprobados = obtener_cursos_aprobados_usuario(db, current_user.id)
         
         # Generar recomendación
         resultado = prolog_service.recomendar(
@@ -444,11 +458,7 @@ async def recomendar_con_reglas_asociacion(
                 print("⚠️ No se pudo entrenar el modelo, continuando sin reglas...")
         
         # Obtener cursos aprobados del usuario
-        cursos_aprobados_db = db.query(CursoAprobado).filter(
-            CursoAprobado.usuario_id == current_user.id
-        ).all()
-        
-        cursos_aprobados = [ca.curso_codigo for ca in cursos_aprobados_db]
+        cursos_aprobados = obtener_cursos_aprobados_usuario(db, current_user.id)
         
         # Generar recomendación
         resultado = association_service.recomendar(
@@ -512,11 +522,7 @@ async def comparar_algoritmos(
             )
         
         # Obtener cursos aprobados
-        cursos_aprobados_db = db.query(CursoAprobado).filter(
-            CursoAprobado.usuario_id == current_user.id
-        ).all()
-        
-        cursos_aprobados = [ca.curso_codigo for ca in cursos_aprobados_db]
+        cursos_aprobados = obtener_cursos_aprobados_usuario(db, current_user.id)
         
         # Recomendación con Prolog
         resultado_prolog = prolog_service.recomendar(
