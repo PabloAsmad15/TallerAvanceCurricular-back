@@ -27,6 +27,16 @@ wheels/
 .env
 .venv
 
+# Backups y scripts temporales
+backups/
+export_*.py
+clean_*.py
+convert_*.py
+build_*.py
+test_*.py
+split_*.py
+*.bat
+
 # IDE
 .vscode/
 .idea/
