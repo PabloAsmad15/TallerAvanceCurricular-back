@@ -13,8 +13,8 @@ class Settings(BaseSettings):
     
     # Email - Resend
     RESEND_API_KEY: str
-    MAIL_FROM: str
-    MAIL_FROM_NAME: str
+    MAIL_FROM: str = "noreply@resend.dev"
+    MAIL_FROM_NAME: str = "Sistema Avance Curricular UPAO"
     DEV_EMAIL_OVERRIDE: Optional[str] = None  # Email para desarrollo
     
     # Email Legacy (opcional)
