@@ -29,13 +29,26 @@ wheels/
 
 # Backups y scripts temporales
 backups/
+data/
 export_*.py
 clean_*.py
 convert_*.py
 build_*.py
 test_*.py
 split_*.py
+verify_*.py
+check_*.py
+create_*.py
+add_*.py
+fix_*.py
 *.bat
+*.sql
+runtime.txt
+railway.json
+nixpacks.toml
+build.sh
+DEPLOYMENT_GUIDE.md
+GUIA_CARGA_DATOS.md
 
 # IDE
 .vscode/
