@@ -1,4 +1,182 @@
-# Backend - Sistema de Recomendación Curricular UPAO
+# 🎓 Sistema de Recomendación Curricular UPAO - Backend
+
+API REST desarrollada con FastAPI para el sistema de recomendación de avance curricular con IA para la Universidad Privada Antenor Orrego.
+
+## 🚀 Características
+
+- **Autenticación JWT**: Sistema seguro de login con tokens
+- **Gestión de Mallas Curriculares**: Soporte para múltiples planes de estudio (2015, 2019, 2022, 2025)
+- **Recomendaciones con IA**: Integración con Gemini AI para sugerencias personalizadas
+- **Panel de Administración**: Dashboard con estadísticas y visualizaciones
+- **Base de Datos**: PostgreSQL con SQLAlchemy ORM
+- **CORS Configurado**: Listo para producción
+
+## 📋 Requisitos Previos
+
+- Python 3.10+
+- PostgreSQL 14+
+- pip
+
+## 🛠️ Instalación Local
+
+1. **Clonar el repositorio**
+```bash
+git clone https://github.com/PabloAsmad15/TallerAvanceCurricular-back.git
+cd TallerAvanceCurricular-back
+```
+
+2. **Crear entorno virtual**
+```bash
+python -m venv venv
+# Windows
+venv\Scripts\activate
+# Linux/Mac
+source venv/bin/activate
+```
+
+3. **Instalar dependencias**
+```bash
+pip install -r requirements.txt
+```
+
+4. **Configurar variables de entorno**
+
+Copia `.env.example` a `.env` y configura:
+
+```env
+DATABASE_URL=postgresql://user:password@localhost:5432/dbname
+SECRET_KEY=tu-secret-key-segura
+RESEND_API_KEY=tu-resend-api-key
+GEMINI_API_KEY=tu-gemini-api-key
+FRONTEND_URL=http://localhost:5173
+ALLOWED_ORIGINS=http://localhost:5173,http://localhost:5174
+```
+
+5. **Inicializar base de datos**
+```bash
+python scripts/init_db.py
+python scripts/load_data.py
+```
+
+6. **Ejecutar servidor**
+```bash
+uvicorn app.main:app --reload --port 8000
+```
+
+La API estará disponible en: `http://localhost:8000`
+Documentación: `http://localhost:8000/docs`
+
+## 🐳 Docker
+
+```bash
+docker-compose up -d
+```
+
+## 📦 Estructura del Proyecto
+
+```
+backend/
+├── app/
+│   ├── routers/          # Endpoints de la API
+│   ├── models.py         # Modelos SQLAlchemy
+│   ├── schemas.py        # Schemas Pydantic
+│   ├── database.py       # Configuración DB
+│   ├── config.py         # Variables de entorno
+│   └── main.py           # Aplicación FastAPI
+├── scripts/              # Scripts de inicialización
+├── .env.example          # Template de variables
+├── requirements.txt      # Dependencias Python
+└── Dockerfile           # Imagen Docker
+
+```
+
+## 🌐 Deployment
+
+### Fly.io (Recomendado)
+
+```bash
+fly launch
+fly secrets set DATABASE_URL="..." SECRET_KEY="..." GEMINI_API_KEY="..."
+fly deploy
+```
+
+### Railway
+
+1. Conectar repo de GitHub
+2. Agregar variables de entorno
+3. Deploy automático
+
+## 🔐 Variables de Entorno
+
+| Variable | Descripción | Requerida |
+|----------|-------------|-----------|
+| `DATABASE_URL` | URL de PostgreSQL | ✅ |
+| `SECRET_KEY` | Clave JWT | ✅ |
+| `GEMINI_API_KEY` | API Key de Google Gemini | ✅ |
+| `RESEND_API_KEY` | API Key de Resend (emails) | ⚠️ |
+| `FRONTEND_URL` | URL del frontend | ✅ |
+| `ALLOWED_ORIGINS` | Orígenes CORS permitidos | ✅ |
+
+## 📚 API Endpoints
+
+### Autenticación
+- `POST /api/auth/register` - Registrar usuario
+- `POST /api/auth/login` - Iniciar sesión
+- `GET /api/auth/me` - Usuario actual
+
+### Mallas Curriculares
+- `GET /api/mallas` - Listar mallas
+- `GET /api/mallas/{id}` - Detalle de malla
+
+### Cursos
+- `GET /api/cursos` - Listar cursos
+- `GET /api/cursos/{id}` - Detalle de curso
+
+### Recomendaciones
+- `POST /api/recommendations/generate` - Generar recomendación con IA
+
+### Admin
+- `GET /api/admin/dashboard` - Estadísticas del sistema
+- `GET /api/admin/users` - Listar usuarios
+
+Ver documentación completa en `/docs` (Swagger UI)
+
+## 👥 Usuarios de Prueba
+
+```
+Admin:
+Email: admin1502@upao.edu.pe
+Password: 12345678
+
+Usuario:
+Email: pasmadm1@upao.edu.pe
+Password: 87654321
+```
+
+## 🧪 Testing
+
+```bash
+pytest
+```
+
+## 📄 Licencia
+
+Este proyecto es privado y de uso exclusivo para la Universidad Privada Antenor Orrego.
+
+## 👨‍💻 Autor
+
+**Pablo Enrique Asmad Morgado**
+- GitHub: [@PabloAsmad15](https://github.com/PabloAsmad15)
+
+## 🔗 Enlaces
+
+- **Backend Producción**: https://taller-avance-curricular-upao.fly.dev
+- **Frontend Producción**: https://taller-avance-curricular-front.vercel.app
+- **Repositorio Frontend**: https://github.com/PabloAsmad15/TallerAvanceCurricular-front
+
+---
+
+Desarrollado con ❤️ para mejorar la experiencia académica en UPAO UPAO
 
 > 🚀 **Backend API REST** con FastAPI y PostgreSQL que implementa un agente de IA para recomendar avance curricular utilizando Constraint Programming o Backtracking.
 
