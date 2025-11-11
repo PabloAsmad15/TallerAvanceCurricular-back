@@ -1,17 +1,43 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 import json
 import time
+from pydantic import BaseModel
 from ..database import get_db
 from ..schemas import RecomendacionRequest, RecomendacionResponse, CursoRecomendado
-from ..models import Usuario, Recomendacion, Curso, Malla, Prerequisito
+from ..models import Usuario, Recomendacion, Curso, Malla, Prerequisito, CursoAprobado
 from ..utils.security import get_current_active_user
 from ..services.ai_agent import ai_agent
 from ..algorithms.constraint_programming import ConstraintProgrammingSolver
 from ..algorithms.backtracking import BacktrackingSolver
+from ..algorithms import PrologRecommendationService, AssociationRulesService
 
 router = APIRouter()
+
+# Servicios globales de los nuevos algoritmos
+prolog_service = PrologRecommendationService()
+association_service = AssociationRulesService()
+
+
+# Schemas para los nuevos endpoints
+class AlgoritmoRequest(BaseModel):
+    """Request para algoritmos avanzados"""
+    entrenar: bool = False  # Para association_rules
+
+
+class AlgoritmoResponse(BaseModel):
+    """Response de algoritmos avanzados"""
+    success: bool
+    algoritmo: str
+    disponible: bool
+    entrenado: Optional[bool] = None
+    completado: Optional[bool] = None
+    diagnostico: Optional[dict] = None
+    recomendacion: Optional[dict] = None
+    reglas_asociacion: Optional[dict] = None
+    mensaje: Optional[str] = None
+    error: Optional[str] = None
 
 
 @router.post("/", response_model=RecomendacionResponse, status_code=status.HTTP_201_CREATED)
@@ -229,3 +255,357 @@ async def get_algorithm_stats(
         }
         for stat in stats
     ]
+
+
+# ============================================================================
+# NUEVOS ENDPOINTS PARA ALGORITMOS AVANZADOS (PROLOG Y REGLAS DE ASOCIACIÓN)
+# ============================================================================
+
+def cargar_malla_completa(db: Session, malla_id: int) -> tuple:
+    """Carga la malla completa con todos sus cursos"""
+    malla = db.query(Malla).filter(Malla.id == malla_id).first()
+    if not malla:
+        return None, None
+    
+    cursos = db.query(Curso).filter(Curso.malla_id == malla_id).all()
+    
+    # Crear diccionario completo de la malla
+    malla_completa = {}
+    malla_por_ciclo = {i: [] for i in range(1, 11)}
+    
+    for curso in cursos:
+        # Parsear prerrequisitos
+        prerrequisitos = []
+        if curso.prerrequisitos:
+            prerrequisitos = [p.strip() for p in curso.prerrequisitos.split(',')]
+        
+        info_curso = {
+            'codigo': curso.codigo,
+            'nombre': curso.nombre,
+            'ciclo': curso.ciclo,
+            'creditos': curso.creditos,
+            'prerrequisitos': prerrequisitos
+        }
+        
+        malla_completa[curso.codigo] = info_curso
+        malla_por_ciclo[curso.ciclo].append(info_curso)
+    
+    return malla_completa, malla_por_ciclo
+
+
+def cargar_todas_las_mallas(db: Session) -> dict:
+    """Carga todas las mallas disponibles"""
+    todas_mallas = {}
+    
+    mallas = db.query(Malla).all()
+    for malla in mallas:
+        año = malla.anio
+        malla_completa, malla_por_ciclo = cargar_malla_completa(db, malla.id)
+        todas_mallas[año] = (malla_completa, malla_por_ciclo)
+    
+    return todas_mallas
+
+
+def obtener_mapa_convalidaciones(db: Session) -> dict:
+    """
+    Obtiene el mapa de convalidaciones
+    NOTA: Por ahora retorna un diccionario vacío
+    TODO: Implementar cuando exista tabla de convalidaciones
+    """
+    return {}
+
+
+@router.post("/prolog", response_model=AlgoritmoResponse)
+async def recomendar_con_prolog(
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_active_user)
+):
+    """
+    🧠 Genera recomendaciones usando el algoritmo de **Prolog**
+    
+    **Características:**
+    - Usa lógica declarativa para analizar prerrequisitos
+    - Identifica el último ciclo completado automáticamente
+    - Prioriza cursos obligatorios sobre cursos de avance
+    - Garantiza que se cumplan todas las reglas académicas
+    
+    **Ventajas:**
+    - Muy preciso con las reglas de prerrequisitos
+    - Rápido para mallas pequeñas y medianas
+    - No requiere entrenamiento previo
+    """
+    try:
+        # Obtener malla del usuario
+        if not current_user.malla_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Usuario no tiene malla asignada"
+            )
+        
+        # Cargar malla completa
+        malla_completa, _ = cargar_malla_completa(db, current_user.malla_id)
+        
+        if not malla_completa:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Malla no encontrada"
+            )
+        
+        # Obtener cursos aprobados del usuario
+        cursos_aprobados_db = db.query(CursoAprobado).filter(
+            CursoAprobado.usuario_id == current_user.id
+        ).all()
+        
+        cursos_aprobados = [ca.curso_codigo for ca in cursos_aprobados_db]
+        
+        # Generar recomendación
+        resultado = prolog_service.recomendar(
+            malla=malla_completa,
+            cursos_aprobados=cursos_aprobados
+        )
+        
+        return AlgoritmoResponse(
+            success=resultado.get('disponible', False),
+            **resultado
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error en recomendación Prolog: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al generar recomendación: {str(e)}"
+        )
+
+
+@router.post("/association-rules", response_model=AlgoritmoResponse)
+async def recomendar_con_reglas_asociacion(
+    request: AlgoritmoRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_active_user)
+):
+    """
+    📊 Genera recomendaciones usando **Reglas de Asociación**
+    
+    **Características:**
+    - Analiza patrones históricos de aprobación de miles de estudiantes
+    - Aprende relaciones entre cursos que suelen aprobarse juntos
+    - Prioriza cursos basándose en patrones de éxito comprobados
+    - Usa métricas de confianza, soporte y lift
+    
+    **Parámetros:**
+    - `entrenar`: Si es `true`, re-entrena el modelo con datos históricos sintéticos
+    
+    **Ventajas:**
+    - Descubre patrones no obvios entre cursos
+    - Mejora con más datos históricos
+    - Recomendaciones personalizadas basadas en historial similar
+    
+    **Nota:** La primera vez debe entrenar (puede tomar unos segundos)
+    """
+    try:
+        # Obtener malla del usuario
+        if not current_user.malla_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Usuario no tiene malla asignada"
+            )
+        
+        # Cargar malla completa
+        malla_completa, malla_por_ciclo = cargar_malla_completa(db, current_user.malla_id)
+        
+        if not malla_completa:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Malla no encontrada"
+            )
+        
+        # Entrenar si se solicita o no está entrenado
+        if request.entrenar or not association_service.trained:
+            print("\n📚 Entrenando modelo de reglas de asociación...")
+            
+            # Cargar todas las mallas
+            todas_mallas = cargar_todas_las_mallas(db)
+            mapa_conval = obtener_mapa_convalidaciones(db)
+            
+            # Generar datos históricos
+            datos_historicos = association_service.generar_datos_historicos(
+                todas_mallas, 
+                mapa_conval
+            )
+            
+            # Entrenar
+            exito_entrenamiento = association_service.entrenar(datos_historicos)
+            
+            if not exito_entrenamiento:
+                print("⚠️ No se pudo entrenar el modelo, continuando sin reglas...")
+        
+        # Obtener cursos aprobados del usuario
+        cursos_aprobados_db = db.query(CursoAprobado).filter(
+            CursoAprobado.usuario_id == current_user.id
+        ).all()
+        
+        cursos_aprobados = [ca.curso_codigo for ca in cursos_aprobados_db]
+        
+        # Generar recomendación
+        resultado = association_service.recomendar(
+            malla=malla_completa,
+            cursos_aprobados=cursos_aprobados,
+            malla_por_ciclo=malla_por_ciclo
+        )
+        
+        return AlgoritmoResponse(
+            success=resultado.get('disponible', False),
+            **resultado
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error en recomendación con reglas de asociación: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al generar recomendación: {str(e)}"
+        )
+
+
+@router.get("/comparar")
+async def comparar_algoritmos(
+    entrenar: bool = False,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_active_user)
+):
+    """
+    🔬 Compara los resultados de ambos algoritmos lado a lado
+    
+    Ejecuta tanto **Prolog** como **Reglas de Asociación** y retorna:
+    - Las recomendaciones de cada algoritmo
+    - Diagnóstico académico de cada uno
+    - Comparación de créditos y cantidad de cursos
+    - Cursos comunes entre ambas recomendaciones
+    
+    Útil para:
+    - Validar consistencia entre algoritmos
+    - Elegir qué algoritmo se adapta mejor a tu caso
+    - Análisis comparativo de estrategias de matrícula
+    """
+    try:
+        # Obtener malla del usuario
+        if not current_user.malla_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Usuario no tiene malla asignada"
+            )
+        
+        # Cargar malla completa
+        malla_completa, malla_por_ciclo = cargar_malla_completa(db, current_user.malla_id)
+        
+        if not malla_completa:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Malla no encontrada"
+            )
+        
+        # Obtener cursos aprobados
+        cursos_aprobados_db = db.query(CursoAprobado).filter(
+            CursoAprobado.usuario_id == current_user.id
+        ).all()
+        
+        cursos_aprobados = [ca.curso_codigo for ca in cursos_aprobados_db]
+        
+        # Recomendación con Prolog
+        resultado_prolog = prolog_service.recomendar(
+            malla=malla_completa,
+            cursos_aprobados=cursos_aprobados
+        )
+        
+        # Entrenar association rules si es necesario
+        if entrenar or not association_service.trained:
+            todas_mallas = cargar_todas_las_mallas(db)
+            mapa_conval = obtener_mapa_convalidaciones(db)
+            datos_historicos = association_service.generar_datos_historicos(
+                todas_mallas, 
+                mapa_conval
+            )
+            association_service.entrenar(datos_historicos)
+        
+        # Recomendación con Reglas de Asociación
+        resultado_association = association_service.recomendar(
+            malla=malla_completa,
+            cursos_aprobados=cursos_aprobados,
+            malla_por_ciclo=malla_por_ciclo
+        )
+        
+        # Extraer cursos recomendados
+        cursos_prolog = set()
+        if resultado_prolog.get('recomendacion'):
+            cursos_prolog = {c['codigo'] for c in resultado_prolog['recomendacion'].get('cursos', [])}
+        
+        cursos_association = set()
+        if resultado_association.get('recomendacion'):
+            cursos_association = {c['codigo'] for c in resultado_association['recomendacion'].get('cursos', [])}
+        
+        # Cursos en común
+        cursos_comunes = cursos_prolog & cursos_association
+        
+        return {
+            "success": True,
+            "prolog": resultado_prolog,
+            "association_rules": resultado_association,
+            "comparacion": {
+                "total_cursos_prolog": len(resultado_prolog.get('recomendacion', {}).get('cursos', [])),
+                "total_cursos_association": len(resultado_association.get('recomendacion', {}).get('cursos', [])),
+                "creditos_prolog": resultado_prolog.get('recomendacion', {}).get('creditos_totales', 0),
+                "creditos_association": resultado_association.get('recomendacion', {}).get('creditos_totales', 0),
+                "cursos_comunes": list(cursos_comunes),
+                "total_comunes": len(cursos_comunes),
+                "similitud": len(cursos_comunes) / max(len(cursos_prolog), len(cursos_association), 1) * 100
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"❌ Error al comparar algoritmos: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error al comparar algoritmos: {str(e)}"
+        )
+
+
+@router.get("/status")
+async def obtener_estado_servicios():
+    """
+    ℹ️ Obtiene el estado de los servicios de recomendación
+    
+    Retorna información sobre:
+    - Disponibilidad de Prolog (requiere SWI-Prolog instalado)
+    - Estado del modelo de Reglas de Asociación (entrenado o no)
+    - Total de reglas aprendidas
+    - Rutas de archivos de configuración
+    """
+    return {
+        "prolog": {
+            "disponible": prolog_service.prolog is not None,
+            "archivo_reglas": str(prolog_service.prolog_file) if prolog_service.prolog_file else None,
+            "descripcion": "Motor de inferencia lógica para recomendaciones basadas en reglas"
+        },
+        "association_rules": {
+            "disponible": association_service is not None,
+            "entrenado": association_service.trained,
+            "total_reglas": len(association_service.rules) if association_service.trained else 0,
+            "descripcion": "Aprendizaje automático de patrones históricos de aprobación"
+        },
+        "algoritmos_clasicos": {
+            "constraint_programming": "Disponible",
+            "backtracking": "Disponible",
+            "descripcion": "Algoritmos clásicos de búsqueda y optimización"
+        }
+    }
