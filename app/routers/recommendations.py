@@ -8,6 +8,7 @@ from ..database import get_db
 from ..schemas import RecomendacionRequest, RecomendacionResponse, CursoRecomendado
 from ..models import Usuario, Recomendacion, Curso, Malla, Prerequisito
 from ..utils.security import get_current_active_user
+from ..utils.course_validator import validar_cursos_aprobados, obtener_cursos_disponibles
 from ..services.ai_agent import ai_agent
 from ..algorithms.constraint_programming import ConstraintProgrammingSolver
 from ..algorithms.backtracking import BacktrackingSolver
@@ -58,6 +59,33 @@ async def create_recommendation(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Malla no encontrada"
         )
+    
+    # ✅ VALIDAR PREREQUISITOS ANTES DE GENERAR RECOMENDACIÓN
+    print(f"🔍 Validando cursos aprobados...")
+    es_valido, errores, advertencias = validar_cursos_aprobados(
+        db=db,
+        malla_id=request.malla_id,
+        codigos_aprobados=request.cursos_aprobados
+    )
+    
+    if not es_valido:
+        error_detail = {
+            "mensaje": "Los cursos seleccionados no cumplen con los prerequisitos",
+            "errores": errores,
+            "advertencias": advertencias
+        }
+        print(f"❌ Validación fallida: {len(errores)} errores")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=error_detail
+        )
+    
+    if advertencias:
+        print(f"⚠️ {len(advertencias)} advertencias encontradas")
+        for adv in advertencias:
+            print(f"  - {adv['mensaje']}")
+    
+    print(f"✅ Validación exitosa")
     
     # Convertir códigos de cursos a IDs
     cursos_ids = []
@@ -212,6 +240,48 @@ async def create_recommendation(
         tiempo_ejecucion=tiempo_ejecucion,
         created_at=db_recomendacion.created_at
     )
+
+
+@router.post("/validate")
+async def validate_approved_courses(
+    request: RecomendacionRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_active_user)
+):
+    """
+    Validar que los cursos marcados como aprobados cumplan con prerequisitos.
+    Este endpoint se puede llamar antes de generar la recomendación para validar.
+    """
+    # Verificar que la malla existe
+    malla = db.query(Malla).filter(Malla.id == request.malla_id).first()
+    if not malla:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Malla no encontrada"
+        )
+    
+    # Validar cursos aprobados
+    es_valido, errores, advertencias = validar_cursos_aprobados(
+        db=db,
+        malla_id=request.malla_id,
+        codigos_aprobados=request.cursos_aprobados
+    )
+    
+    # Obtener cursos disponibles
+    cursos_disponibles = obtener_cursos_disponibles(
+        db=db,
+        malla_id=request.malla_id,
+        codigos_aprobados=request.cursos_aprobados
+    )
+    
+    return {
+        "valido": es_valido,
+        "errores": errores,
+        "advertencias": advertencias,
+        "total_aprobados": len(request.cursos_aprobados),
+        "cursos_disponibles": len(cursos_disponibles),
+        "mensaje": "Validación exitosa" if es_valido else "Se encontraron errores en la selección de cursos"
+    }
 
 
 @router.get("/history", response_model=List[RecomendacionResponse])
