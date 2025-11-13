@@ -71,8 +71,7 @@ async def get_curso(
 @router.get("/malla/{malla_id}/prerequisitos")
 async def get_prerequisitos_malla(
     malla_id: int,
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_active_user)
+    db: Session = Depends(get_db)
 ):
     """Obtener todos los prerequisitos de una malla (incluye convalidaciones)"""
     
