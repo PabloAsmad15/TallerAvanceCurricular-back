@@ -14,6 +14,7 @@ from ..utils.security import (
     get_current_active_user
 )
 from ..utils.email import send_password_reset_email, send_welcome_email
+from ..utils.validators import validar_nombre_apellido, validar_password, validar_email
 from ..config import settings
 from ..firebase_config import verify_firebase_token
 from pydantic import BaseModel
@@ -38,8 +39,18 @@ class FirebaseRegisterRequest(BaseModel):
 async def register(usuario: UsuarioCreate, db: Session = Depends(get_db)):
     """Registrar nuevo usuario"""
     
+    # Validar email
+    email_validado = validar_email(usuario.email)
+    
+    # Validar nombre y apellido
+    nombre_validado = validar_nombre_apellido(usuario.nombre, "Nombre")
+    apellido_validado = validar_nombre_apellido(usuario.apellido, "Apellido")
+    
+    # Validar contraseña
+    validar_password(usuario.password)
+    
     # Verificar si el email ya existe
-    db_usuario = db.query(Usuario).filter(Usuario.email == usuario.email).first()
+    db_usuario = db.query(Usuario).filter(Usuario.email == email_validado).first()
     if db_usuario:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -49,10 +60,10 @@ async def register(usuario: UsuarioCreate, db: Session = Depends(get_db)):
     # Crear usuario
     hashed_password = get_password_hash(usuario.password)
     db_usuario = Usuario(
-        email=usuario.email,
+        email=email_validado,
         password_hash=hashed_password,
-        nombre=usuario.nombre,
-        apellido=usuario.apellido
+        nombre=nombre_validado,
+        apellido=apellido_validado
     )
     
     db.add(db_usuario)
@@ -275,6 +286,11 @@ async def firebase_login(request: FirebaseLoginRequest, db: Session = Depends(ge
 async def firebase_register(request: FirebaseRegisterRequest, db: Session = Depends(get_db)):
     """Registro con Firebase Auth - Crear usuario en PostgreSQL después de registro en Firebase"""
     
+    # 0. Validar datos antes de verificar Firebase
+    email_validado = validar_email(request.email)
+    nombre_validado = validar_nombre_apellido(request.nombre, "Nombre")
+    apellido_validado = validar_nombre_apellido(request.apellido, "Apellido")
+    
     # 1. Verificar token de Firebase
     firebase_user = await verify_firebase_token(request.firebaseToken)
     firebase_uid = firebase_user.get('uid')
@@ -287,7 +303,7 @@ async def firebase_register(request: FirebaseRegisterRequest, db: Session = Depe
         )
     
     # 3. Verificar si el usuario ya existe
-    existing_user = db.query(Usuario).filter(Usuario.email == request.email).first()
+    existing_user = db.query(Usuario).filter(Usuario.email == email_validado).first()
     if existing_user:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -297,9 +313,9 @@ async def firebase_register(request: FirebaseRegisterRequest, db: Session = Depe
     # 4. Crear usuario en PostgreSQL
     # No necesitamos password_hash porque Firebase maneja la autenticación
     nuevo_usuario = Usuario(
-        email=request.email,
-        nombre=request.nombre,
-        apellido=request.apellido,
+        email=email_validado,
+        nombre=nombre_validado,
+        apellido=apellido_validado,
         firebase_uid=firebase_uid,
         password_hash="",  # Firebase maneja las contraseñas
         is_active=True
