@@ -104,23 +104,75 @@ async def create_recommendation(
     print(f"✅ Agente decidió usar: {algoritmo_elegido}")
     print(f"📝 Razón: {razon_algoritmo[:100]}...")
     
-    # Ejecutar el algoritmo elegido
+    # Ejecutar el algoritmo elegido (AHORA CON 4 OPCIONES)
     start_time = time.time()
+    cursos_recomendados_raw = []
     
     if algoritmo_elegido == "constraint_programming":
         solver = ConstraintProgrammingSolver(db)
         cursos_recomendados_raw = solver.recommend_courses(
             malla_id=request.malla_id,
-            cursos_aprobados_ids=cursos_ids,  # Usar IDs convertidos
+            cursos_aprobados_ids=cursos_ids,
             max_cursos=6
         )
-    else:  # backtracking
+    
+    elif algoritmo_elegido == "backtracking":
         solver = BacktrackingSolver(db)
         cursos_recomendados_raw = solver.recommend_courses(
             malla_id=request.malla_id,
-            cursos_aprobados_ids=cursos_ids,  # Usar IDs convertidos
+            cursos_aprobados_ids=cursos_ids,
             max_cursos=6
         )
+    
+    elif algoritmo_elegido == "prolog":
+        # Cargar malla completa para Prolog
+        malla_completa, _ = cargar_malla_completa(db, request.malla_id)
+        if malla_completa:
+            resultado_prolog = prolog_service.recomendar(
+                malla=malla_completa,
+                cursos_aprobados=request.cursos_aprobados
+            )
+            
+            if resultado_prolog.get('disponible') and resultado_prolog.get('recomendacion'):
+                # Convertir formato de Prolog a formato estándar
+                cursos_recomendados_raw = [
+                    {
+                        "codigo": curso['codigo'],
+                        "nombre": curso['nombre'],
+                        "ciclo": curso['ciclo'],
+                        "creditos": curso['creditos']
+                    }
+                    for curso in resultado_prolog['recomendacion']['cursos']
+                ]
+    
+    elif algoritmo_elegido == "association_rules":
+        # Cargar malla completa para Association Rules
+        malla_completa, malla_por_ciclo = cargar_malla_completa(db, request.malla_id)
+        if malla_completa:
+            # Entrenar si no está entrenado
+            if not association_service.trained:
+                todas_mallas = cargar_todas_las_mallas(db)
+                mapa_conval = obtener_mapa_convalidaciones(db)
+                datos_historicos = association_service.generar_datos_historicos(todas_mallas, mapa_conval)
+                association_service.entrenar(datos_historicos)
+            
+            resultado_association = association_service.recomendar(
+                malla=malla_completa,
+                cursos_aprobados=request.cursos_aprobados,
+                malla_por_ciclo=malla_por_ciclo
+            )
+            
+            if resultado_association.get('disponible') and resultado_association.get('recomendacion'):
+                # Convertir formato de Association Rules a formato estándar
+                cursos_recomendados_raw = [
+                    {
+                        "codigo": curso['codigo'],
+                        "nombre": curso['nombre'],
+                        "ciclo": curso['ciclo'],
+                        "creditos": curso['creditos']
+                    }
+                    for curso in resultado_association['recomendacion']['cursos']
+                ]
     
     tiempo_ejecucion = time.time() - start_time
     
