@@ -75,6 +75,8 @@ async def create_recommendation(
             "advertencias": advertencias
         }
         print(f"❌ Validación fallida: {len(errores)} errores")
+        for error in errores:
+            print(f"  - {error}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=error_detail
