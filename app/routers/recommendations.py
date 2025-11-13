@@ -105,28 +105,79 @@ async def create_recommendation(
             detail="No se encontraron cursos válidos con los códigos proporcionados"
         )
     
-    # Obtener estadísticas para el agente
+    # 📊 OBTENER ESTADÍSTICAS DETALLADAS PARA EL AGENTE
     total_cursos = db.query(Curso).filter(Curso.malla_id == request.malla_id).count()
-    cursos_aprobados = len(cursos_ids)
-    cursos_pendientes = total_cursos - cursos_aprobados
+    cursos_aprobados_count = len(cursos_ids)
+    cursos_pendientes = total_cursos - cursos_aprobados_count
     
-    # Contar prerequisitos
-    num_prerequisitos = db.query(Prerequisito).join(
+    # Obtener cursos aprobados reales para análisis
+    cursos_aprobados_objs = db.query(Curso).filter(
+        Curso.id.in_(cursos_ids)
+    ).all()
+    
+    # Analizar distribución por ciclos
+    ciclos_completados = set()
+    ciclos_parciales = set()
+    cursos_por_ciclo_aprobados = {}
+    
+    for curso in cursos_aprobados_objs:
+        ciclo = curso.ciclo
+        if ciclo not in cursos_por_ciclo_aprobados:
+            cursos_por_ciclo_aprobados[ciclo] = 0
+        cursos_por_ciclo_aprobados[ciclo] += 1
+    
+    # Identificar ciclos completos (aproximadamente 6 cursos por ciclo)
+    for ciclo, count in cursos_por_ciclo_aprobados.items():
+        if count >= 5:  # Casi completo
+            ciclos_completados.add(ciclo)
+        else:
+            ciclos_parciales.add(ciclo)
+    
+    # Determinar ciclo actual más preciso
+    if ciclos_completados:
+        ciclo_actual = max(ciclos_completados) + 1
+    elif cursos_por_ciclo_aprobados:
+        ciclo_actual = max(cursos_por_ciclo_aprobados.keys())
+    else:
+        ciclo_actual = 1
+    
+    ciclo_actual = min(10, max(1, ciclo_actual))
+    
+    # Contar prerequisitos TOTALES de la malla
+    num_prerequisitos_totales = db.query(Prerequisito).join(
         Curso, Prerequisito.curso_id == Curso.id
     ).filter(
         Curso.malla_id == request.malla_id
     ).count()
     
-    # Determinar ciclo actual (aproximado por cursos aprobados)
-    ciclo_actual = min(10, max(1, (cursos_aprobados // 6) + 1))
+    # Contar prerequisitos CUMPLIDOS (cursos pendientes que pueden cursarse YA)
+    cursos_disponibles = obtener_cursos_disponibles(
+        db=db,
+        malla_id=request.malla_id,
+        codigos_aprobados=request.cursos_aprobados
+    )
+    num_cursos_disponibles = len(cursos_disponibles)
     
-    # 🤖 EL AGENTE DECIDE QUÉ ALGORITMO USAR
-    print(f"🤖 Consultando al agente de IA...")
+    # Detectar si es alumno irregular (tiene ciclos incompletos)
+    es_irregular = len(ciclos_parciales) > 1
+    
+    print(f"📊 Métricas del estudiante:")
+    print(f"   - Total cursos: {total_cursos}")
+    print(f"   - Aprobados: {cursos_aprobados_count}")
+    print(f"   - Pendientes: {cursos_pendientes}")
+    print(f"   - Disponibles ahora: {num_cursos_disponibles}")
+    print(f"   - Ciclos completos: {sorted(ciclos_completados)}")
+    print(f"   - Ciclos parciales: {sorted(ciclos_parciales)}")
+    print(f"   - Ciclo actual: {ciclo_actual}")
+    print(f"   - Estado: {'IRREGULAR' if es_irregular else 'REGULAR'}")
+    
+    # 🤖 EL AGENTE DECIDE QUÉ ALGORITMO USAR CON DATOS REALES
+    print(f"🤖 Consultando al agente de IA con métricas reales...")
     algoritmo_elegido, razon_algoritmo = ai_agent.decide_algorithm(
         total_cursos=total_cursos,
-        cursos_aprobados=cursos_aprobados,
+        cursos_aprobados=cursos_aprobados_count,
         cursos_pendientes=cursos_pendientes,
-        num_prerequisitos=num_prerequisitos,
+        num_prerequisitos=num_prerequisitos_totales,
         ciclo_actual=ciclo_actual,
         malla_anio=malla.anio
     )
