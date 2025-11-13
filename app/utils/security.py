@@ -64,10 +64,47 @@ async def get_current_user(
     return user
 
 
-async def get_current_active_user(
-    current_user: Usuario = Depends(get_current_user)
+async def get_current_user_firebase(
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(get_db)
 ) -> Usuario:
-    """Verifica que el usuario esté activo"""
+    """Obtiene el usuario actual desde el token de Firebase"""
+    from ..firebase_config import verify_firebase_token
+    
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="No se pudieron validar las credenciales",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    
+    try:
+        # Verificar token de Firebase
+        firebase_user = await verify_firebase_token(token)
+        email = firebase_user.get('email')
+        firebase_uid = firebase_user.get('uid')
+        
+        if not email or not firebase_uid:
+            raise credentials_exception
+        
+        # Buscar usuario en PostgreSQL por firebase_uid o email
+        user = db.query(Usuario).filter(
+            (Usuario.firebase_uid == firebase_uid) | (Usuario.email == email)
+        ).first()
+        
+        if user is None:
+            raise credentials_exception
+        
+        return user
+        
+    except Exception as e:
+        print(f"Error validando token de Firebase: {e}")
+        raise credentials_exception
+
+
+async def get_current_active_user(
+    current_user: Usuario = Depends(get_current_user_firebase)
+) -> Usuario:
+    """Verifica que el usuario esté activo (usando Firebase)"""
     if not current_user.is_active:
         raise HTTPException(status_code=400, detail="Usuario inactivo")
     return current_user
