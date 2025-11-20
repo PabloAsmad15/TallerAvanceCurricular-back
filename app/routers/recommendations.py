@@ -99,7 +99,8 @@ async def create_recommendation(
         if curso:
             cursos_ids.append(curso.id)
     
-    if not cursos_ids:
+    # Validar solo si se proporcionaron códigos pero no se encontraron
+    if request.cursos_aprobados and not cursos_ids:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No se encontraron cursos válidos con los códigos proporcionados"
@@ -215,16 +216,25 @@ async def create_recommendation(
             )
             
             if resultado_prolog.get('disponible') and resultado_prolog.get('recomendacion'):
-                # Convertir formato de Prolog a formato estándar
-                cursos_recomendados_raw = [
-                    {
-                        "codigo": curso['codigo'],
-                        "nombre": curso['nombre'],
-                        "ciclo": curso['ciclo'],
-                        "creditos": curso['creditos']
-                    }
-                    for curso in resultado_prolog['recomendacion']['cursos']
-                ]
+                # Convertir formato de Prolog a formato estándar con campos completos
+                cursos_recomendados_raw = []
+                for idx, curso in enumerate(resultado_prolog['recomendacion']['cursos'], 1):
+                    # Buscar el curso en la BD para obtener el curso_id
+                    curso_db = db.query(Curso).filter(
+                        Curso.codigo == curso['codigo'],
+                        Curso.malla_id == request.malla_id
+                    ).first()
+                    
+                    if curso_db:
+                        cursos_recomendados_raw.append({
+                            "curso_id": curso_db.id,
+                            "codigo": curso['codigo'],
+                            "nombre": curso['nombre'],
+                            "ciclo": curso['ciclo'],
+                            "creditos": curso['creditos'],
+                            "prioridad": idx,  # Orden de recomendación
+                            "razon": "Recomendado por análisis lógico de prerequisitos"
+                        })
     
     elif algoritmo_elegido == "association_rules":
         # Cargar malla completa para Association Rules
@@ -244,16 +254,25 @@ async def create_recommendation(
             )
             
             if resultado_association.get('disponible') and resultado_association.get('recomendacion'):
-                # Convertir formato de Association Rules a formato estándar
-                cursos_recomendados_raw = [
-                    {
-                        "codigo": curso['codigo'],
-                        "nombre": curso['nombre'],
-                        "ciclo": curso['ciclo'],
-                        "creditos": curso['creditos']
-                    }
-                    for curso in resultado_association['recomendacion']['cursos']
-                ]
+                # Convertir formato de Association Rules a formato estándar con campos completos
+                cursos_recomendados_raw = []
+                for idx, curso in enumerate(resultado_association['recomendacion']['cursos'], 1):
+                    # Buscar el curso en la BD para obtener el curso_id
+                    curso_db = db.query(Curso).filter(
+                        Curso.codigo == curso['codigo'],
+                        Curso.malla_id == request.malla_id
+                    ).first()
+                    
+                    if curso_db:
+                        cursos_recomendados_raw.append({
+                            "curso_id": curso_db.id,
+                            "codigo": curso['codigo'],
+                            "nombre": curso['nombre'],
+                            "ciclo": curso['ciclo'],
+                            "creditos": curso['creditos'],
+                            "prioridad": idx,  # Orden de recomendación
+                            "razon": "Recomendado por patrones de aprobación históricos"
+                        })
     
     tiempo_ejecucion = time.time() - start_time
     
@@ -449,17 +468,19 @@ def cargar_malla_completa(db: Session, malla_id: int) -> tuple:
     malla_por_ciclo = {i: [] for i in range(1, 11)}
     
     for curso in cursos:
-        # Parsear prerrequisitos
-        prerrequisitos = []
-        if curso.prerrequisitos:
-            prerrequisitos = [p.strip() for p in curso.prerrequisitos.split(',')]
+        # Parsear prerequisitos desde la relación
+        prerequisitos_list = []
+        if curso.prerequisitos:
+            for prereq in curso.prerequisitos:
+                if prereq.prerequisito_curso:
+                    prerequisitos_list.append(prereq.prerequisito_curso.codigo)
         
         info_curso = {
             'codigo': curso.codigo,
             'nombre': curso.nombre,
             'ciclo': curso.ciclo,
             'creditos': curso.creditos,
-            'prerrequisitos': prerrequisitos
+            'prerrequisitos': prerequisitos_list
         }
         
         malla_completa[curso.codigo] = info_curso

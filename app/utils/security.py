@@ -102,9 +102,9 @@ async def get_current_user_firebase(
 
 
 async def get_current_active_user(
-    current_user: Usuario = Depends(get_current_user_firebase)
+    current_user: Usuario = Depends(get_current_user)
 ) -> Usuario:
-    """Verifica que el usuario esté activo (usando Firebase)"""
+    """Verifica que el usuario esté activo (usando JWT local)"""
     if not current_user.is_active:
         raise HTTPException(status_code=400, detail="Usuario inactivo")
     return current_user
