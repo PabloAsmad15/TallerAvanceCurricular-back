@@ -77,7 +77,7 @@ async def get_prerequisitos_malla(
         malla = db.query(Malla).filter(Malla.id == malla_id).first()
         if not malla:
             print(f"⚠️  Malla {malla_id} no encontrada")
-            return {"prerequisitos": {}, "convalidaciones": {}}
+            return {"prerequisitos": [], "convalidaciones": []}
         
         print(f"✓ Malla {malla_id} encontrada: {malla.nombre}")
         
@@ -94,23 +94,28 @@ async def get_prerequisitos_malla(
         
         print(f"✓ Encontrados {len(prerequisitos)} prerequisitos")
         
-        # Construir mapa de prerequisitos
-        prerequisitos_map = {}
+        # Construir lista de prerequisitos
+        prerequisitos_list = []
         for prereq in prerequisitos:
             try:
                 curso = db.query(Curso).filter(Curso.id == prereq.curso_id).first()
                 curso_prereq = db.query(Curso).filter(Curso.id == prereq.prerequisito_id).first()
                 
                 if curso and curso_prereq:
-                    if curso.codigo not in prerequisitos_map:
-                        prerequisitos_map[curso.codigo] = []
-                    prerequisitos_map[curso.codigo].append(curso_prereq.codigo)
+                    prerequisitos_list.append({
+                        "curso_id": curso.id,
+                        "curso_codigo": curso.codigo,
+                        "curso_nombre": curso.nombre,
+                        "prerequisito_id": curso_prereq.id,
+                        "prerequisito_codigo": curso_prereq.codigo,
+                        "prerequisito_nombre": curso_prereq.nombre
+                    })
             except Exception as e:
                 print(f"⚠️  Error procesando prerequisito: {e}")
                 continue
         
         # Agregar convalidaciones (cursos equivalentes de otras mallas)
-        convalidaciones_map = {}
+        convalidaciones_list = []
         try:
             # Obtener el año de la malla destino
             malla_anio = malla.anio
@@ -129,12 +134,15 @@ async def get_prerequisitos_malla(
                     curso_destino = db.query(Curso).filter(Curso.id == conv.curso_destino_id).first()
                     
                     if curso_origen and curso_destino:
-                        if curso_destino.codigo not in convalidaciones_map:
-                            convalidaciones_map[curso_destino.codigo] = []
-                        convalidaciones_map[curso_destino.codigo].append({
-                            "codigo": curso_origen.codigo,
-                            "nombre": curso_origen.nombre,
-                            "malla_origen": conv.malla_origen_anio
+                        convalidaciones_list.append({
+                            "curso_origen_id": curso_origen.id,
+                            "curso_origen_codigo": curso_origen.codigo,
+                            "curso_origen_nombre": curso_origen.nombre,
+                            "malla_origen_anio": conv.malla_origen_anio,
+                            "curso_destino_id": curso_destino.id,
+                            "curso_destino_codigo": curso_destino.codigo,
+                            "curso_destino_nombre": curso_destino.nombre,
+                            "malla_destino_anio": conv.malla_destino_anio
                         })
                         print(f"  → {curso_origen.codigo} (malla {conv.malla_origen_anio}) → {curso_destino.codigo}")
                 except Exception as e:
@@ -143,11 +151,11 @@ async def get_prerequisitos_malla(
         except Exception as e:
             print(f"⚠️  Error consultando convalidaciones: {e}")
         
-        print(f"✓ Devolviendo {len(prerequisitos_map)} prerequisitos y {len(convalidaciones_map)} convalidaciones")
+        print(f"✓ Devolviendo {len(prerequisitos_list)} prerequisitos y {len(convalidaciones_list)} convalidaciones")
         
         return {
-            "prerequisitos": prerequisitos_map,
-            "convalidaciones": convalidaciones_map
+            "prerequisitos": prerequisitos_list,
+            "convalidaciones": convalidaciones_list
         }
     
     except HTTPException:
@@ -157,4 +165,4 @@ async def get_prerequisitos_malla(
         import traceback
         traceback.print_exc()
         # Devolver respuesta vacía en lugar de error 500
-        return {"prerequisitos": {}, "convalidaciones": {}}
+        return {"prerequisitos": [], "convalidaciones": []}
