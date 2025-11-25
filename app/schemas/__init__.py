@@ -137,6 +137,27 @@ class RecomendacionResponse(BaseModel):
         from_attributes = True
 
 
+# Schemas para comparación de algoritmos
+class ResultadoAlgoritmo(BaseModel):
+    algoritmo: str
+    cursos_recomendados: List[CursoRecomendado]
+    tiempo_ejecucion: float
+    total_creditos: int
+    numero_cursos: int
+    cumple_limite_creditos: bool
+    error: Optional[str] = None
+
+
+class ComparacionAlgoritmosResponse(BaseModel):
+    malla_id: int
+    cursos_aprobados: List[str]
+    max_creditos: int
+    resultados: List[ResultadoAlgoritmo]
+    algoritmo_seleccionado: str
+    razon_seleccion: str
+    metricas_comparacion: Dict[str, Any]
+
+
 # Schemas de Prerequisitos
 class PrerequistoResponse(BaseModel):
     id: int

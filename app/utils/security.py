@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 from typing import Optional
+import os
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
@@ -101,10 +102,8 @@ async def get_current_user_firebase(
         raise credentials_exception
 
 
-async def get_current_active_user(
-    current_user: Usuario = Depends(get_current_user_firebase)
-) -> Usuario:
-    """Verifica que el usuario esté activo (usando Firebase para producción, JWT para tests)"""
+async def get_current_active_user(current_user: Usuario = Depends(get_current_user_firebase)) -> Usuario:
+    """Verifica que el usuario esté activo"""
     if not current_user.is_active:
         raise HTTPException(status_code=400, detail="Usuario inactivo")
     return current_user

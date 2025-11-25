@@ -1,11 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 import json
 import time
 from pydantic import BaseModel
 from ..database import get_db
-from ..schemas import RecomendacionRequest, RecomendacionResponse, CursoRecomendado
+from ..schemas import (
+    RecomendacionRequest, RecomendacionResponse, CursoRecomendado,
+    ComparacionAlgoritmosResponse, ResultadoAlgoritmo
+)
 from ..models import Usuario, Recomendacion, Curso, Malla, Prerequisito
 from ..utils.security import get_current_active_user
 from ..utils.course_validator import validar_cursos_aprobados, obtener_cursos_disponibles
@@ -811,3 +814,239 @@ async def obtener_estado_servicios():
             "descripcion": "Algoritmos clásicos de búsqueda y optimización"
         }
     }
+
+
+@router.post("/comparar-algoritmos", response_model=ComparacionAlgoritmosResponse)
+async def comparar_algoritmos(
+    request: RecomendacionRequest,
+    db: Session = Depends(get_db),
+    current_user: Usuario = Depends(get_current_active_user)
+):
+    """
+    Ejecuta los 4 algoritmos y compara sus resultados para que el estudiante vea
+    cuál fue más efectivo en su caso específico.
+    
+    Devuelve:
+    - Resultados de cada algoritmo (cursos recomendados, tiempo, créditos)
+    - El algoritmo que el agente de IA seleccionó
+    - Métricas de comparación (eficiencia, diversidad, optimización)
+    """
+    
+    print(f"\n{'='*60}")
+    print(f"COMPARACIÓN DE ALGORITMOS PARA USUARIO: {current_user.email}")
+    print(f"{'='*60}\n")
+    
+    # 1. Validar malla
+    malla = db.query(Malla).filter(Malla.id == request.malla_id).first()
+    if not malla:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Malla con ID {request.malla_id} no encontrada"
+        )
+    
+    # 2. Obtener y validar cursos
+    todos_cursos = db.query(Curso).filter(Curso.malla_id == request.malla_id).all()
+    cursos_map = {c.codigo: c for c in todos_cursos}
+    
+    print(f"📚 Malla: {malla.nombre}")
+    print(f"📝 Cursos aprobados enviados: {request.cursos_aprobados}")
+    print(f"🎯 Máximo créditos: 22\n")
+    
+    # Validar cursos aprobados
+    cursos_aprobados_validados = []
+    for codigo in request.cursos_aprobados:
+        if codigo in cursos_map:
+            cursos_aprobados_validados.append(cursos_map[codigo])
+    
+    cursos_aprobados_ids = [c.id for c in cursos_aprobados_validados]
+    
+    # 3. Obtener cursos disponibles
+    cursos_disponibles = obtener_cursos_disponibles(
+        db, request.malla_id, cursos_aprobados_ids
+    )
+    
+    max_creditos = 22
+    resultados = []
+    
+    # 4. Ejecutar cada algoritmo
+    algoritmos = [
+        ("constraint_programming", "Constraint Programming (CP-SAT)"),
+        ("backtracking", "Backtracking"),
+        ("prolog", "Prolog"),
+        ("association_rules", "Association Rules")
+    ]
+    
+    for algo_key, algo_nombre in algoritmos:
+        print(f"\n🔍 Ejecutando: {algo_nombre}")
+        print(f"{'='*60}")
+        
+        try:
+            start_time = time.time()
+            
+            if algo_key == "constraint_programming":
+                solver = ConstraintProgrammingSolver()
+                cursos_rec = solver.recomendar_cursos(
+                    cursos_disponibles, cursos_aprobados_ids, max_creditos
+                )
+            
+            elif algo_key == "backtracking":
+                solver = BacktrackingSolver()
+                cursos_rec = solver.recomendar_cursos(
+                    cursos_disponibles, cursos_aprobados_ids, max_creditos
+                )
+            
+            elif algo_key == "prolog":
+                if prolog_service.prolog is None:
+                    raise Exception("Servicio Prolog no disponible")
+                cursos_rec = prolog_service.recomendar_cursos(
+                    db, request.malla_id, cursos_aprobados_ids, max_creditos
+                )
+            
+            elif algo_key == "association_rules":
+                if association_service is None or not association_service.trained:
+                    raise Exception("Servicio de Reglas de Asociación no entrenado")
+                cursos_rec = association_service.recomendar_cursos(
+                    cursos_aprobados_ids, cursos_disponibles, max_creditos
+                )
+            
+            tiempo = time.time() - start_time
+            
+            # Convertir a formato CursoRecomendado
+            cursos_recomendados = []
+            total_creditos = 0
+            
+            for curso_data in cursos_rec:
+                if isinstance(curso_data, dict):
+                    curso_id = curso_data.get('curso_id')
+                    curso = db.query(Curso).filter(Curso.id == curso_id).first()
+                    if curso:
+                        cursos_recomendados.append(CursoRecomendado(
+                            curso_id=curso.id,
+                            codigo=curso.codigo,
+                            nombre=curso.nombre,
+                            creditos=curso.creditos,
+                            ciclo=curso.ciclo,
+                            prioridad=curso_data.get('prioridad', 1),
+                            razon=curso_data.get('razon', f'Recomendado por {algo_nombre}')
+                        ))
+                        total_creditos += curso.creditos
+            
+            cumple_limite = total_creditos <= max_creditos
+            
+            print(f"✅ {algo_nombre} completado")
+            print(f"   Cursos: {len(cursos_recomendados)}")
+            print(f"   Créditos: {total_creditos}/{max_creditos}")
+            print(f"   Tiempo: {tiempo:.3f}s")
+            print(f"   Cumple límite: {'✓' if cumple_limite else '✗'}")
+            
+            resultados.append(ResultadoAlgoritmo(
+                algoritmo=algo_key,
+                cursos_recomendados=cursos_recomendados,
+                tiempo_ejecucion=round(tiempo, 3),
+                total_creditos=total_creditos,
+                numero_cursos=len(cursos_recomendados),
+                cumple_limite_creditos=cumple_limite,
+                error=None
+            ))
+            
+        except Exception as e:
+            print(f"❌ Error en {algo_nombre}: {str(e)}")
+            resultados.append(ResultadoAlgoritmo(
+                algoritmo=algo_key,
+                cursos_recomendados=[],
+                tiempo_ejecucion=0.0,
+                total_creditos=0,
+                numero_cursos=0,
+                cumple_limite_creditos=False,
+                error=str(e)
+            ))
+    
+    # 5. Dejar que el agente de IA seleccione el mejor
+    print(f"\n{'='*60}")
+    print(f"🤖 AGENTE DE IA SELECCIONANDO ALGORITMO ÓPTIMO")
+    print(f"{'='*60}\n")
+    
+    # Calcular métricas del estudiante
+    total_cursos = len(todos_cursos)
+    num_aprobados = len(cursos_aprobados_validados)
+    num_disponibles = len(cursos_disponibles)
+    
+    # Llamar al agente de IA
+    decision = await ai_agent(
+        cursos_disponibles=cursos_disponibles,
+        cursos_aprobados=cursos_aprobados_ids,
+        total_cursos=total_cursos,
+        num_aprobados=num_aprobados,
+        num_disponibles=num_disponibles,
+        max_creditos=max_creditos
+    )
+    
+    algoritmo_seleccionado = decision.get("algoritmo", "prolog")
+    razon_seleccion = decision.get("razon", "Selección por defecto")
+    
+    # 6. Calcular métricas de comparación
+    resultados_validos = [r for r in resultados if not r.error]
+    
+    metricas = {
+        "algoritmos_exitosos": len(resultados_validos),
+        "algoritmos_con_error": len([r for r in resultados if r.error]),
+        "tiempo_promedio": round(sum(r.tiempo_ejecucion for r in resultados_validos) / len(resultados_validos), 3) if resultados_validos else 0,
+        "tiempo_minimo": round(min(r.tiempo_ejecucion for r in resultados_validos), 3) if resultados_validos else 0,
+        "tiempo_maximo": round(max(r.tiempo_ejecucion for r in resultados_validos), 3) if resultados_validos else 0,
+        "algoritmo_mas_rapido": min(resultados_validos, key=lambda r: r.tiempo_ejecucion).algoritmo if resultados_validos else None,
+        "algoritmo_mas_cursos": max(resultados_validos, key=lambda r: r.numero_cursos).algoritmo if resultados_validos else None,
+        "algoritmo_mas_creditos": max(resultados_validos, key=lambda r: r.total_creditos).algoritmo if resultados_validos else None,
+        "consenso_cursos": _calcular_consenso([r.cursos_recomendados for r in resultados_validos]) if resultados_validos else []
+    }
+    
+    print(f"\n{'='*60}")
+    print(f"📊 RESUMEN DE COMPARACIÓN")
+    print(f"{'='*60}")
+    print(f"Algoritmo seleccionado: {algoritmo_seleccionado}")
+    print(f"Razón: {razon_seleccion}")
+    print(f"Algoritmos exitosos: {metricas['algoritmos_exitosos']}/4")
+    print(f"Más rápido: {metricas['algoritmo_mas_rapido']}")
+    print(f"Más cursos: {metricas['algoritmo_mas_cursos']}")
+    print(f"Más créditos: {metricas['algoritmo_mas_creditos']}")
+    print(f"{'='*60}\n")
+    
+    return ComparacionAlgoritmosResponse(
+        malla_id=request.malla_id,
+        cursos_aprobados=request.cursos_aprobados,
+        max_creditos=max_creditos,
+        resultados=resultados,
+        algoritmo_seleccionado=algoritmo_seleccionado,
+        razon_seleccion=razon_seleccion,
+        metricas_comparacion=metricas
+    )
+
+
+def _calcular_consenso(listas_cursos: List[List[CursoRecomendado]]) -> List[Dict[str, Any]]:
+    """
+    Calcula qué cursos fueron recomendados por múltiples algoritmos (consenso).
+    """
+    if not listas_cursos:
+        return []
+    
+    # Contar cuántos algoritmos recomendaron cada curso
+    contador = {}
+    for lista in listas_cursos:
+        for curso in lista:
+            if curso.curso_id not in contador:
+                contador[curso.curso_id] = {
+                    "curso_id": curso.curso_id,
+                    "codigo": curso.codigo,
+                    "nombre": curso.nombre,
+                    "veces_recomendado": 0
+                }
+            contador[curso.curso_id]["veces_recomendado"] += 1
+    
+    # Ordenar por consenso (más recomendados primero)
+    consenso = sorted(
+        contador.values(),
+        key=lambda x: x["veces_recomendado"],
+        reverse=True
+    )
+    
+    return consenso[:10]  # Top 10 cursos con más consenso
+

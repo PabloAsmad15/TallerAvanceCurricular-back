@@ -2,6 +2,10 @@
 Pytest configuration and shared fixtures
 """
 import os
+
+# IMPORTANTE: Establecer modo test ANTES de importar app.main
+os.environ["TESTING"] = "1"
+
 import pytest
 import asyncio
 from typing import Generator, AsyncGenerator

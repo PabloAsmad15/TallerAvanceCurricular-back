@@ -247,12 +247,23 @@ async def reset_password(
 async def firebase_login(request: FirebaseLoginRequest, db: Session = Depends(get_db)):
     """Login con Firebase Auth - Verificar token y retornar datos del usuario de PostgreSQL"""
     
+    print(f"🔐 Iniciando login Firebase")
+    
     # 1. Verificar token de Firebase
-    firebase_user = await verify_firebase_token(request.firebaseToken)
-    firebase_uid = firebase_user.get('uid')
-    email = firebase_user.get('email')
+    try:
+        firebase_user = await verify_firebase_token(request.firebaseToken)
+        firebase_uid = firebase_user.get('uid')
+        email = firebase_user.get('email')
+        print(f"✓ Token verificado - UID: {firebase_uid}, Email: {email}")
+    except Exception as e:
+        print(f"❌ Error verificando token: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Token de Firebase inválido: {str(e)}"
+        )
     
     if not email:
+        print(f"❌ Token sin email")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="El token de Firebase no contiene un email"
@@ -262,12 +273,16 @@ async def firebase_login(request: FirebaseLoginRequest, db: Session = Depends(ge
     usuario = db.query(Usuario).filter(Usuario.email == email).first()
     
     if not usuario:
+        print(f"❌ Usuario no encontrado con email: {email}")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Usuario no encontrado. Debes registrarte primero."
         )
     
+    print(f"✓ Usuario encontrado: {usuario.nombre} {usuario.apellido}")
+    
     if not usuario.is_active:
+        print(f"❌ Usuario inactivo")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Usuario inactivo"
@@ -278,7 +293,9 @@ async def firebase_login(request: FirebaseLoginRequest, db: Session = Depends(ge
         usuario.firebase_uid = firebase_uid
         db.commit()
         db.refresh(usuario)
+        print(f"✓ Firebase UID actualizado")
     
+    print(f"✅ Login exitoso para {email}")
     return usuario
 
 
@@ -286,17 +303,46 @@ async def firebase_login(request: FirebaseLoginRequest, db: Session = Depends(ge
 async def firebase_register(request: FirebaseRegisterRequest, db: Session = Depends(get_db)):
     """Registro con Firebase Auth - Crear usuario en PostgreSQL después de registro en Firebase"""
     
+    print(f"📝 Iniciando registro Firebase para: {request.email}")
+    print(f"   Nombre: {request.nombre}, Apellido: {request.apellido}, Tipo: {request.tipo}")
+    
     # 0. Validar datos antes de verificar Firebase
-    email_validado = validar_email(request.email)
-    nombre_validado = validar_nombre_apellido(request.nombre, "Nombre")
-    apellido_validado = validar_nombre_apellido(request.apellido, "Apellido")
+    try:
+        email_validado = validar_email(request.email)
+        print(f"✓ Email validado: {email_validado}")
+    except HTTPException as e:
+        print(f"❌ Error validando email: {e.detail}")
+        raise
+    
+    try:
+        nombre_validado = validar_nombre_apellido(request.nombre, "Nombre")
+        print(f"✓ Nombre validado: {nombre_validado}")
+    except HTTPException as e:
+        print(f"❌ Error validando nombre: {e.detail}")
+        raise
+    
+    try:
+        apellido_validado = validar_nombre_apellido(request.apellido, "Apellido")
+        print(f"✓ Apellido validado: {apellido_validado}")
+    except HTTPException as e:
+        print(f"❌ Error validando apellido: {e.detail}")
+        raise
     
     # 1. Verificar token de Firebase
-    firebase_user = await verify_firebase_token(request.firebaseToken)
-    firebase_uid = firebase_user.get('uid')
+    try:
+        firebase_user = await verify_firebase_token(request.firebaseToken)
+        firebase_uid = firebase_user.get('uid')
+        print(f"✓ Token Firebase verificado, UID: {firebase_uid}")
+    except Exception as e:
+        print(f"❌ Error verificando token Firebase: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Token de Firebase inválido: {str(e)}"
+        )
     
     # 2. Verificar que el UID del token coincida con el enviado
     if firebase_uid != request.firebaseUid:
+        print(f"❌ UID no coincide. Token: {firebase_uid}, Enviado: {request.firebaseUid}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="El UID de Firebase no coincide con el token"
@@ -305,10 +351,13 @@ async def firebase_register(request: FirebaseRegisterRequest, db: Session = Depe
     # 3. Verificar si el usuario ya existe
     existing_user = db.query(Usuario).filter(Usuario.email == email_validado).first()
     if existing_user:
+        print(f"❌ Usuario ya existe con email: {email_validado}")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="El correo electrónico ya está registrado"
         )
+    
+    print(f"✓ Email disponible, procediendo a crear usuario")
     
     # 4. Crear usuario en PostgreSQL
     # No necesitamos password_hash porque Firebase maneja la autenticación
@@ -325,14 +374,23 @@ async def firebase_register(request: FirebaseRegisterRequest, db: Session = Depe
     if request.tipo == "admin":
         nuevo_usuario.is_admin = True
     
-    db.add(nuevo_usuario)
-    db.commit()
-    db.refresh(nuevo_usuario)
+    try:
+        db.add(nuevo_usuario)
+        db.commit()
+        db.refresh(nuevo_usuario)
+        print(f"✅ Usuario creado exitosamente: ID {nuevo_usuario.id}")
+    except Exception as e:
+        print(f"❌ Error guardando usuario en DB: {str(e)}")
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error creando usuario: {str(e)}"
+        )
     
     # 5. Enviar email de bienvenida (sin bloquear)
     try:
         await send_welcome_email(request.email, request.nombre)
     except Exception as e:
-        print(f"Error enviando email de bienvenida: {e}")
+        print(f"⚠️  Error enviando email de bienvenida: {e}")
     
     return nuevo_usuario
