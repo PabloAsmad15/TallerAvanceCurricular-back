@@ -20,6 +20,10 @@ class UsuarioCreate(UsuarioBase):
         # Convertir a minúsculas y eliminar espacios
         v = v.lower().strip()
         
+        # Validar que no tenga espacios en el medio
+        if ' ' in v:
+            raise ValueError('El correo no puede contener espacios')
+        
         # Validar formato de email con regex más estricto
         email_regex = r'^[a-zA-Z0-9][a-zA-Z0-9._-]*[a-zA-Z0-9]@[a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z]{2,}$'
         if not re.match(email_regex, v):
@@ -37,6 +41,10 @@ class UsuarioCreate(UsuarioBase):
             raise ValueError('El correo no puede comenzar o terminar con guion antes del @')
         if local_part.startswith('_') or local_part.endswith('_'):
             raise ValueError('El correo no puede comenzar o terminar con guion bajo antes del @')
+        
+        # VALIDAR QUE SEA DE @upao.edu.pe
+        if not v.endswith('@upao.edu.pe'):
+            raise ValueError('El correo debe terminar en @upao.edu.pe')
         
         return v
     

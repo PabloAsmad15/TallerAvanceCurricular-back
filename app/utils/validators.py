@@ -161,6 +161,13 @@ def validar_email(email: str) -> str:
     # Limpiar y convertir a minúsculas
     email = email.strip().lower()
     
+    # Validar que no tenga espacios
+    if ' ' in email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El correo no puede contener espacios"
+        )
+    
     # Regex estricto para validar email
     email_regex = r'^[a-zA-Z0-9][a-zA-Z0-9._-]*[a-zA-Z0-9]@[a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z]{2,}$'
     
@@ -181,10 +188,17 @@ def validar_email(email: str) -> str:
     local_part = email.split('@')[0]
     
     # No puede comenzar o terminar con . - _
-    if local_part[0] in '.­_' or local_part[-1] in '.-_':
+    if local_part[0] in '.-_' or local_part[-1] in '.-_':
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="El correo no puede comenzar o terminar con punto, guion o guion bajo antes del @"
+        )
+    
+    # VALIDAR QUE SEA DE @upao.edu.pe
+    if not email.endswith('@upao.edu.pe'):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El correo debe terminar en @upao.edu.pe"
         )
     
     # Validar longitud
