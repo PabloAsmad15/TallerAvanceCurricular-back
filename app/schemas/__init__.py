@@ -110,9 +110,16 @@ class CursoPorCiclo(BaseModel):
 
 
 # Schemas de Recomendación
+class CursoAprobadoMultiMalla(BaseModel):
+    codigo: str
+    malla_origen_anio: int  # De qué malla es este curso
+
+
 class RecomendacionRequest(BaseModel):
-    malla_id: int
+    malla_id: int  # Malla objetivo (normalmente 2025)
     cursos_aprobados: List[str]  # Lista de CÓDIGOS de cursos aprobados (ej: ["ICSI-506", "CIEN-752"])
+    # Nueva funcionalidad: cursos de múltiples mallas
+    cursos_aprobados_multi_malla: Optional[List[CursoAprobadoMultiMalla]] = None
 
 
 class CursoRecomendado(BaseModel):

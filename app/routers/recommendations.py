@@ -12,6 +12,7 @@ from ..schemas import (
 from ..models import Usuario, Recomendacion, Curso, Malla, Prerequisito
 from ..utils.security import get_current_active_user
 from ..utils.course_validator import validar_cursos_aprobados, obtener_cursos_disponibles
+from ..utils.multi_malla_validator import procesar_cursos_multi_malla, validar_cursos_multi_malla
 from ..services.ai_agent import ai_agent
 from ..algorithms.constraint_programming import ConstraintProgrammingSolver
 from ..algorithms.backtracking import BacktrackingSolver
@@ -53,6 +54,11 @@ async def create_recommendation(
     """
     Crear recomendación curricular usando el agente de IA.
     El agente decide automáticamente qué algoritmo usar.
+    
+    SOPORTA MÚLTIPLES MALLAS:
+    - Si cursos_aprobados_multi_malla está presente, se procesan cursos de varias mallas
+    - Los cursos se convalidan automáticamente hacia la malla_id (objetivo)
+    - Ejemplo: Cursos de malla 2019 y 2022 se convalidan a malla 2025
     """
     
     # Verificar que la malla existe
@@ -63,51 +69,88 @@ async def create_recommendation(
             detail="Malla no encontrada"
         )
     
-    # ✅ VALIDAR PREREQUISITOS ANTES DE GENERAR RECOMENDACIÓN
-    print(f"🔍 Validando cursos aprobados...")
-    es_valido, errores, advertencias = validar_cursos_aprobados(
-        db=db,
-        malla_id=request.malla_id,
-        codigos_aprobados=request.cursos_aprobados
-    )
-    
-    if not es_valido:
-        error_detail = {
-            "mensaje": "Los cursos seleccionados no cumplen con los prerequisitos",
-            "errores": errores,
-            "advertencias": advertencias
-        }
-        print(f"❌ Validación fallida: {len(errores)} errores")
-        for error in errores:
-            print(f"  - {error}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=error_detail
-        )
-    
-    if advertencias:
-        print(f"⚠️ {len(advertencias)} advertencias encontradas")
-        for adv in advertencias:
-            print(f"  - {adv['mensaje']}")
-    
-    print(f"✅ Validación exitosa")
-    
-    # Convertir códigos de cursos a IDs
+    # 🆕 NUEVA FUNCIONALIDAD: MÚLTIPLES MALLAS
     cursos_ids = []
-    for codigo in request.cursos_aprobados:
-        curso = db.query(Curso).filter(
-            Curso.codigo == codigo,
-            Curso.malla_id == request.malla_id
-        ).first()
-        if curso:
-            cursos_ids.append(curso.id)
+    info_convalidacion = None
     
-    # Validar solo si se proporcionaron códigos pero no se encontraron
-    if request.cursos_aprobados and not cursos_ids:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No se encontraron cursos válidos con los códigos proporcionados"
+    if request.cursos_aprobados_multi_malla:
+        print(f"\n{'='*60}")
+        print(f"MODO: MÚLTIPLES MALLAS")
+        print(f"{'='*60}\n")
+        
+        # Convertir de Pydantic a dict
+        cursos_multi_dict = [
+            {
+                "codigo": curso.codigo,
+                "malla_origen_anio": curso.malla_origen_anio
+            }
+            for curso in request.cursos_aprobados_multi_malla
+        ]
+        
+        # Procesar y convalidar cursos de múltiples mallas
+        cursos_ids, info_convalidacion = procesar_cursos_multi_malla(
+            db=db,
+            malla_destino_anio=malla.anio,
+            cursos_aprobados_multi_malla=cursos_multi_dict
         )
+        
+        if info_convalidacion["cursos_sin_convalidacion"] > 0:
+            print(f"⚠️ Advertencia: {info_convalidacion['cursos_sin_convalidacion']} cursos sin convalidación")
+        
+        # Actualizar request.cursos_aprobados con los códigos convalidados para logging
+        cursos_convalidados = db.query(Curso).filter(Curso.id.in_(cursos_ids)).all()
+        request.cursos_aprobados = [c.codigo for c in cursos_convalidados]
+        
+    else:
+        # MODO TRADICIONAL: Una sola malla
+        print(f"\n{'='*60}")
+        print(f"MODO: UNA SOLA MALLA")
+        print(f"{'='*60}\n")
+        
+        # ✅ VALIDAR PREREQUISITOS ANTES DE GENERAR RECOMENDACIÓN
+        print(f"🔍 Validando cursos aprobados...")
+        es_valido, errores, advertencias = validar_cursos_aprobados(
+            db=db,
+            malla_id=request.malla_id,
+            codigos_aprobados=request.cursos_aprobados
+        )
+        
+        if not es_valido:
+            error_detail = {
+                "mensaje": "Los cursos seleccionados no cumplen con los prerequisitos",
+                "errores": errores,
+                "advertencias": advertencias
+            }
+            print(f"❌ Validación fallida: {len(errores)} errores")
+            for error in errores:
+                print(f"  - {error}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=error_detail
+            )
+        
+        if advertencias:
+            print(f"⚠️ {len(advertencias)} advertencias encontradas")
+            for adv in advertencias:
+                print(f"  - {adv['mensaje']}")
+        
+        print(f"✅ Validación exitosa")
+        
+        # Convertir códigos de cursos a IDs
+        for codigo in request.cursos_aprobados:
+            curso = db.query(Curso).filter(
+                Curso.codigo == codigo,
+                Curso.malla_id == request.malla_id
+            ).first()
+            if curso:
+                cursos_ids.append(curso.id)
+        
+        # Validar solo si se proporcionaron códigos pero no se encontraron
+        if request.cursos_aprobados and not cursos_ids:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="No se encontraron cursos válidos con los códigos proporcionados"
+            )
     
     # 📊 OBTENER ESTADÍSTICAS DETALLADAS PARA EL AGENTE
     total_cursos = db.query(Curso).filter(Curso.malla_id == request.malla_id).count()
