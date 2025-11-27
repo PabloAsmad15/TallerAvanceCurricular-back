@@ -1,22 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from typing import List
 from ..database import get_db
 from ..schemas import MallaResponse
 from ..models import Malla
 from ..utils.security import get_current_active_user, Usuario
 
 router = APIRouter()
-
-
-@router.get("/", response_model=List[MallaResponse])
-async def get_mallas(
-    db: Session = Depends(get_db),
-    current_user: Usuario = Depends(get_current_active_user)
-):
-    """Obtener todas las mallas curriculares"""
-    mallas = db.query(Malla).filter(Malla.is_active == True).order_by(Malla.anio).all()
-    return mallas
 
 
 @router.get("/{malla_id}", response_model=MallaResponse)
