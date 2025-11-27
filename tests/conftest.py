@@ -102,7 +102,7 @@ def test_user_data():
     """Sample user data for testing"""
     return {
         "email": "test@upao.edu.pe",
-        "password": "TestPassword123",
+        "password": "TestPassword123!",
         "nombre": "Test",
         "apellido": "User",
         "codigo": "T12345678"
@@ -114,7 +114,7 @@ def test_admin_data():
     """Sample admin user data for testing"""
     return {
         "email": "admin@upao.edu.pe",
-        "password": "AdminPassword123",
+        "password": "AdminPassword123!",
         "nombre": "Admin",
         "apellido": "Test",
         "codigo": "A12345678",
@@ -158,7 +158,6 @@ def admin_headers(client: TestClient, db_session: Session, test_admin_data: dict
         password_hash=hashed_password,
         nombre=test_admin_data["nombre"],
         apellido=test_admin_data["apellido"],
-        codigo=test_admin_data["codigo"],
         is_admin=True,
         firebase_uid="test-admin-uid"
     )
