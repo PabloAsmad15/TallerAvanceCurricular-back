@@ -564,22 +564,42 @@ async def comparar_algoritmos(
             detail=f"Malla con ID {request.malla_id} no encontrada"
         )
     
-    # 2. Obtener y validar cursos
-    todos_cursos = db.query(Curso).filter(Curso.malla_id == request.malla_id).all()
-    cursos_map = {c.codigo: c for c in todos_cursos}
-    
-    print(f"📚 Malla: {malla.nombre}")
-    print(f"📝 Cursos aprobados enviados: {request.cursos_aprobados}")
-    print(f"🎯 Máximo créditos: 22\n")
-    
-    # Validar cursos aprobados
-    cursos_aprobados_validados = []
-    for codigo in request.cursos_aprobados:
-        if codigo in cursos_map:
-            cursos_aprobados_validados.append(cursos_map[codigo])
-    
-    cursos_aprobados_ids = [c.id for c in cursos_aprobados_validados]
-    
+    # SOPORTA MÚLTIPLES MALLAS (igual que create_recommendation)
+    cursos_aprobados_ids = []
+    info_convalidacion = None
+    if getattr(request, 'cursos_aprobados_multi_malla', None):
+        print(f"\n{'='*60}")
+        print(f"MODO: MÚLTIPLES MALLAS (COMPARAR)")
+        print(f"{'='*60}\n")
+        cursos_multi_dict = [
+            {
+                "codigo": curso.codigo,
+                "malla_origen_anio": curso.malla_origen_anio
+            }
+            for curso in request.cursos_aprobados_multi_malla
+        ]
+        from ..utils.multi_malla_validator import procesar_cursos_multi_malla
+        cursos_aprobados_ids, info_convalidacion = procesar_cursos_multi_malla(
+            db=db,
+            malla_destino_anio=malla.anio,
+            cursos_aprobados_multi_malla=cursos_multi_dict
+        )
+        # Para logging y métricas
+        cursos_convalidados = db.query(Curso).filter(Curso.id.in_(cursos_aprobados_ids)).all()
+        request.cursos_aprobados = [c.codigo for c in cursos_convalidados]
+    else:
+        # MODO TRADICIONAL
+        todos_cursos = db.query(Curso).filter(Curso.malla_id == request.malla_id).all()
+        cursos_map = {c.codigo: c for c in todos_cursos}
+        print(f"📚 Malla: {malla.nombre}")
+        print(f"📝 Cursos aprobados enviados: {request.cursos_aprobados}")
+        print(f"🎯 Máximo créditos: 22\n")
+        cursos_aprobados_validados = []
+        for codigo in request.cursos_aprobados:
+            if codigo in cursos_map:
+                cursos_aprobados_validados.append(cursos_map[codigo])
+        cursos_aprobados_ids = [c.id for c in cursos_aprobados_validados]
+
     # 3. Obtener cursos disponibles
     cursos_disponibles = obtener_cursos_disponibles(
         db, request.malla_id, cursos_aprobados_ids
