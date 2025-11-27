@@ -193,9 +193,11 @@ def obtener_cursos_disponibles(
         Lista de cursos disponibles para cursar
     """
     # Obtener IDs de cursos aprobados
+    # Asegurarse de que todos los códigos sean string para evitar error de tipo en Postgres
+    codigos_aprobados_str = [str(c) for c in codigos_aprobados]
     cursos_aprobados = db.query(Curso).filter(
         Curso.malla_id == malla_id,
-        Curso.codigo.in_(codigos_aprobados)
+        Curso.codigo.in_(codigos_aprobados_str)
     ).all()
     
     ids_aprobados = set(c.id for c in cursos_aprobados)
