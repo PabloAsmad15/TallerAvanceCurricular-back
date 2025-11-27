@@ -619,42 +619,82 @@ async def comparar_algoritmos(
     for algo_key, algo_nombre in algoritmos:
         print(f"\n🔍 Ejecutando: {algo_nombre}")
         print(f"{'='*60}")
-        
         try:
             start_time = time.time()
-            
+            cursos_rec = []
             if algo_key == "constraint_programming":
-                solver = ConstraintProgrammingSolver()
-                cursos_rec = solver.recomendar_cursos(
-                    cursos_disponibles, cursos_aprobados_ids, max_creditos
+                solver = ConstraintProgrammingSolver(db)
+                cursos_rec = solver.recommend_courses(
+                    malla_id=request.malla_id,
+                    cursos_aprobados_ids=cursos_aprobados_ids,
+                    max_cursos=6
                 )
-            
             elif algo_key == "backtracking":
-                solver = BacktrackingSolver()
-                cursos_rec = solver.recomendar_cursos(
-                    cursos_disponibles, cursos_aprobados_ids, max_creditos
+                solver = BacktrackingSolver(db)
+                cursos_rec = solver.recommend_courses(
+                    malla_id=request.malla_id,
+                    cursos_aprobados_ids=cursos_aprobados_ids,
+                    max_cursos=6
                 )
-            
             elif algo_key == "prolog":
-                if prolog_service.prolog is None:
-                    raise Exception("Servicio Prolog no disponible")
-                cursos_rec = prolog_service.recomendar_cursos(
-                    db, request.malla_id, cursos_aprobados_ids, max_creditos
-                )
-            
+                if not hasattr(prolog_service, "recomendar"):
+                    raise Exception("Servicio Prolog no implementa 'recomendar'")
+                malla_completa, _ = cargar_malla_completa(db, request.malla_id)
+                if malla_completa:
+                    resultado_prolog = prolog_service.recomendar(
+                        malla=malla_completa,
+                        cursos_aprobados=request.cursos_aprobados
+                    )
+                    if resultado_prolog.get('disponible') and resultado_prolog.get('recomendacion'):
+                        cursos_rec = []
+                        for idx, curso in enumerate(resultado_prolog['recomendacion']['cursos'], 1):
+                            curso_db = db.query(Curso).filter(
+                                Curso.codigo == curso['codigo'],
+                                Curso.malla_id == request.malla_id
+                            ).first()
+                            if curso_db:
+                                cursos_rec.append({
+                                    "curso_id": curso_db.id,
+                                    "codigo": curso['codigo'],
+                                    "nombre": curso['nombre'],
+                                    "ciclo": curso['ciclo'],
+                                    "creditos": curso['creditos'],
+                                    "prioridad": idx,
+                                    "razon": "Recomendado por análisis lógico de prerequisitos"
+                                })
             elif algo_key == "association_rules":
-                if association_service is None or not association_service.trained:
-                    raise Exception("Servicio de Reglas de Asociación no entrenado")
-                cursos_rec = association_service.recomendar_cursos(
-                    cursos_aprobados_ids, cursos_disponibles, max_creditos
-                )
-            
+                malla_completa, malla_por_ciclo = cargar_malla_completa(db, request.malla_id)
+                if malla_completa:
+                    if not association_service.trained:
+                        todas_mallas = cargar_todas_las_mallas(db)
+                        mapa_conval = obtener_mapa_convalidaciones(db)
+                        datos_historicos = association_service.generar_datos_historicos(todas_mallas, mapa_conval)
+                        association_service.entrenar(datos_historicos)
+                    resultado_association = association_service.recomendar(
+                        malla=malla_completa,
+                        cursos_aprobados=request.cursos_aprobados,
+                        malla_por_ciclo=malla_por_ciclo
+                    )
+                    if resultado_association.get('disponible') and resultado_association.get('recomendacion'):
+                        cursos_rec = []
+                        for idx, curso in enumerate(resultado_association['recomendacion']['cursos'], 1):
+                            curso_db = db.query(Curso).filter(
+                                Curso.codigo == curso['codigo'],
+                                Curso.malla_id == request.malla_id
+                            ).first()
+                            if curso_db:
+                                cursos_rec.append({
+                                    "curso_id": curso_db.id,
+                                    "codigo": curso['codigo'],
+                                    "nombre": curso['nombre'],
+                                    "ciclo": curso['ciclo'],
+                                    "creditos": curso['creditos'],
+                                    "prioridad": idx,
+                                    "razon": "Recomendado por patrones de aprobación históricos"
+                                })
             tiempo = time.time() - start_time
-            
-            # Convertir a formato CursoRecomendado
             cursos_recomendados = []
             total_creditos = 0
-            
             for curso_data in cursos_rec:
                 if isinstance(curso_data, dict):
                     curso_id = curso_data.get('curso_id')
@@ -670,15 +710,12 @@ async def comparar_algoritmos(
                             razon=curso_data.get('razon', f'Recomendado por {algo_nombre}')
                         ))
                         total_creditos += curso.creditos
-            
             cumple_limite = total_creditos <= max_creditos
-            
             print(f"✅ {algo_nombre} completado")
             print(f"   Cursos: {len(cursos_recomendados)}")
             print(f"   Créditos: {total_creditos}/{max_creditos}")
             print(f"   Tiempo: {tiempo:.3f}s")
             print(f"   Cumple límite: {'✓' if cumple_limite else '✗'}")
-            
             resultados.append(ResultadoAlgoritmo(
                 algoritmo=algo_key,
                 cursos_recomendados=cursos_recomendados,
@@ -688,7 +725,6 @@ async def comparar_algoritmos(
                 cumple_limite_creditos=cumple_limite,
                 error=None
             ))
-            
         except Exception as e:
             print(f"❌ Error en {algo_nombre}: {str(e)}")
             resultados.append(ResultadoAlgoritmo(
@@ -711,18 +747,17 @@ async def comparar_algoritmos(
     num_aprobados = len(cursos_aprobados_validados)
     num_disponibles = len(cursos_disponibles)
     
-    # Llamar al agente de IA
-    decision = await ai_agent(
-        cursos_disponibles=cursos_disponibles,
-        cursos_aprobados=cursos_aprobados_ids,
+    # Llamar al agente de IA (método correcto)
+    decision = ai_agent.decide_algorithm(
         total_cursos=total_cursos,
-        num_aprobados=num_aprobados,
-        num_disponibles=num_disponibles,
-        max_creditos=max_creditos
+        cursos_aprobados=num_aprobados,
+        cursos_pendientes=total_cursos - num_aprobados,
+        num_prerequisitos=0,  # Puedes calcular si lo necesitas
+        ciclo_actual=1,  # Puedes calcular si lo necesitas
+        malla_anio=malla.anio
     )
-    
-    algoritmo_seleccionado = decision.get("algoritmo", "prolog")
-    razon_seleccion = decision.get("razon", "Selección por defecto")
+    algoritmo_seleccionado = decision[0] if isinstance(decision, tuple) else decision.get("algoritmo", "prolog")
+    razon_seleccion = decision[1] if isinstance(decision, tuple) else decision.get("razon", "Selección por defecto")
     
     # 6. Calcular métricas de comparación
     resultados_validos = [r for r in resultados if not r.error]
