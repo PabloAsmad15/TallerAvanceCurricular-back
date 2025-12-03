@@ -10,7 +10,6 @@ from pydantic import BaseModel
 
 from ..database import get_db
 from ..models import Curso, Malla, Usuario
-from ..schemas import RecommendationRequest
 from ..routers.recommendations import (
     obtener_cursos_disponibles,
     ConstraintProgrammingSolver,
