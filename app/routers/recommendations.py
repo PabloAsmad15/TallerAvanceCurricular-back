@@ -589,8 +589,8 @@ async def comparar_algoritmos(
             cursos_aprobados_multi_malla=cursos_multi_dict
         )
         # Para logging y métricas
-        cursos_convalidados = db.query(Curso).filter(Curso.id.in_(cursos_aprobados_ids)).all()
-        request.cursos_aprobados = [c.codigo for c in cursos_convalidados]
+        cursos_aprobados_validados = db.query(Curso).filter(Curso.id.in_(cursos_aprobados_ids)).all()
+        request.cursos_aprobados = [c.codigo for c in cursos_aprobados_validados]
     else:
         # MODO TRADICIONAL
         cursos_map = {c.codigo: c for c in todos_cursos}
