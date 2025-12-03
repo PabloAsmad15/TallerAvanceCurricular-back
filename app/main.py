@@ -23,50 +23,19 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS - Usar variable de entorno ALLOWED_ORIGINS con soporte para wildcards
-allowed_origins_str = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173")
-allowed_origins = allowed_origins_str.split(",")
-
-# Agregar soporte para wildcards de Vercel
-# Permitir todas las URLs de Vercel que coincidan con el patrón del proyecto
-import re
-def origin_validator(origin: str) -> bool:
-    """Valida si el origen está permitido"""
-    # Verificar si está en la lista exacta
-    if origin in allowed_origins:
-        return True
-    
-    # Verificar si es un deployment de Vercel del proyecto
-    vercel_pattern = r'^https://taller-avance-curricular-front(-[a-z0-9]+)?(-git-[a-z0-9-]+)?(-[a-z0-9]+)?\.vercel\.app$'
-    if re.match(vercel_pattern, origin):
-        return True
-    
-    # Verificar localhost
-    if origin.startswith("http://localhost:"):
-        return True
-    
-    return False
-
-# Configurar CORS de manera más permisiva para todos los deployments de Vercel
+# CORS - Configuración mejorada para permitir todos los deployments de Vercel
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"https://taller-avance-curricular-front.*\.vercel\.app",
+    allow_origin_regex=r"https://.*\.vercel\.app",  # Permite todos los subdominios de Vercel
     allow_origins=[
         "http://localhost:5173", 
         "http://localhost:3000",
-        "https://taller-avance-curricular-front.vercel.app"  # Producción explícita
+        "http://localhost:5174",
+        "https://taller-avance-curricular-front.vercel.app",
     ],
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-    allow_headers=[
-        "Content-Type",
-        "Authorization",
-        "Accept",
-        "Origin",
-        "X-Requested-With",
-        "Access-Control-Request-Method",
-        "Access-Control-Request-Headers",
-    ],
+    allow_methods=["*"],  # Permite todos los métodos HTTP
+    allow_headers=["*"],  # Permite todos los headers
     expose_headers=["*"],
     max_age=3600,
 )
