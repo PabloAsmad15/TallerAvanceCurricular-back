@@ -23,7 +23,7 @@ from ..routers.recommendations import (
 )
 import time
 
-router = APIRouter(prefix="/test", tags=["Load Testing"])
+router = APIRouter(tags=["Load Testing"])
 
 
 class LoadTestRecommendationRequest(BaseModel):
