@@ -567,6 +567,10 @@ async def comparar_algoritmos(
     # SOPORTA MÚLTIPLES MALLAS (igual que create_recommendation)
     cursos_aprobados_ids = []
     info_convalidacion = None
+    
+    # Obtener todos los cursos de la malla (necesario para métricas)
+    todos_cursos = db.query(Curso).filter(Curso.malla_id == request.malla_id).all()
+    
     if getattr(request, 'cursos_aprobados_multi_malla', None):
         print(f"\n{'='*60}")
         print(f"MODO: MÚLTIPLES MALLAS (COMPARAR)")
@@ -589,7 +593,6 @@ async def comparar_algoritmos(
         request.cursos_aprobados = [c.codigo for c in cursos_convalidados]
     else:
         # MODO TRADICIONAL
-        todos_cursos = db.query(Curso).filter(Curso.malla_id == request.malla_id).all()
         cursos_map = {c.codigo: c for c in todos_cursos}
         print(f"📚 Malla: {malla.nombre}")
         print(f"📝 Cursos aprobados enviados: {request.cursos_aprobados}")
