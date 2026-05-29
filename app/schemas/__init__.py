@@ -9,10 +9,12 @@ class UsuarioBase(BaseModel):
     email: EmailStr
     nombre: str
     apellido: str
+    id_estudiante: Optional[str] = None
 
 
 class UsuarioCreate(UsuarioBase):
     password: str
+    id_estudiante: str
     
     @field_validator('email')
     @classmethod
@@ -124,6 +126,14 @@ class UsuarioCreate(UsuarioBase):
         if v.lower() in common_passwords:
             raise ValueError('La contraseña es demasiado común, elige una más segura')
         
+        return v
+
+    @field_validator('id_estudiante')
+    @classmethod
+    def validate_id_estudiante(cls, v):
+        v = v.strip()
+        if not re.fullmatch(r"000\d{6}", v):
+            raise ValueError('El ID de estudiante debe tener 9 digitos y empezar con 000')
         return v
 
 
@@ -321,3 +331,23 @@ class ConvalidacionResponse(BaseModel):
     
     class Config:
         from_attributes = True
+
+
+# Schemas de Asistente
+class AssistantChatRequest(BaseModel):
+    message: str
+    malla_id: Optional[int] = None
+    cursos_aprobados: Optional[List[str]] = None
+    cursos_aprobados_multi_malla: Optional[List[CursoAprobadoMultiMalla]] = None
+
+
+class AssistantSource(BaseModel):
+    source: Optional[str] = None
+    title: Optional[str] = None
+    chunk_index: Optional[int] = None
+    content: str
+
+
+class AssistantChatResponse(BaseModel):
+    answer: str
+    sources: List[AssistantSource]

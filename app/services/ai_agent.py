@@ -17,7 +17,7 @@ class AIAgent:
     """
     
     def __init__(self):
-        self.model = genai.GenerativeModel('gemini-pro')
+        self.model = genai.GenerativeModel(settings.GEMINI_CHAT_MODEL)
     
     def decide_algorithm(
         self,

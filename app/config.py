@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     
     # Gemini
     GEMINI_API_KEY: str
+    GEMINI_CHAT_MODEL: str = "gemini-3.5-flash"
+    GEMINI_EMBED_MODEL: str = "gemini-embedding-001"
+    RAG_TOP_K: int = 6
     
     # Frontend
     FRONTEND_URL: str = "http://localhost:5173"

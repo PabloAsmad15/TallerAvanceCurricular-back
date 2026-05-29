@@ -215,3 +215,19 @@ def validar_email(email: str) -> str:
         )
     
     return email
+
+
+def validar_id_estudiante(id_estudiante: str) -> str:
+    """
+    Valida el ID de estudiante.
+    Formato esperado: 9 digitos que empiezan con 000 (ej: 000123456).
+    """
+    id_estudiante = id_estudiante.strip()
+
+    if not re.fullmatch(r"000\d{6}", id_estudiante):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El ID de estudiante debe tener 9 digitos y empezar con 000"
+        )
+
+    return id_estudiante

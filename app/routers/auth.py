@@ -14,7 +14,7 @@ from ..utils.security import (
     get_current_active_user
 )
 from ..utils.email import send_password_reset_email, send_welcome_email
-from ..utils.validators import validar_nombre_apellido, validar_password, validar_email
+from ..utils.validators import validar_nombre_apellido, validar_password, validar_email, validar_id_estudiante
 from ..config import settings
 from ..firebase_config import verify_firebase_token
 from pydantic import BaseModel
@@ -32,6 +32,7 @@ class FirebaseRegisterRequest(BaseModel):
     email: str
     nombre: str
     apellido: str
+    id_estudiante: str
     tipo: str = "estudiante"
 
 
@@ -45,6 +46,9 @@ async def register(usuario: UsuarioCreate, db: Session = Depends(get_db)):
     # Validar nombre y apellido
     nombre_validado = validar_nombre_apellido(usuario.nombre, "Nombre")
     apellido_validado = validar_nombre_apellido(usuario.apellido, "Apellido")
+
+    # Validar ID estudiante
+    id_estudiante_validado = validar_id_estudiante(usuario.id_estudiante)
     
     # Validar contraseña
     validar_password(usuario.password)
@@ -63,7 +67,8 @@ async def register(usuario: UsuarioCreate, db: Session = Depends(get_db)):
         email=email_validado,
         password_hash=hashed_password,
         nombre=nombre_validado,
-        apellido=apellido_validado
+        apellido=apellido_validado,
+        id_estudiante=id_estudiante_validado
     )
     
     db.add(db_usuario)
@@ -304,7 +309,7 @@ async def firebase_register(request: FirebaseRegisterRequest, db: Session = Depe
     """Registro con Firebase Auth - Crear usuario en PostgreSQL después de registro en Firebase"""
     
     print(f"📝 Iniciando registro Firebase para: {request.email}")
-    print(f"   Nombre: {request.nombre}, Apellido: {request.apellido}, Tipo: {request.tipo}")
+    print(f"   Nombre: {request.nombre}, Apellido: {request.apellido}, ID: {request.id_estudiante}, Tipo: {request.tipo}")
     
     # 0. Validar datos antes de verificar Firebase
     try:
@@ -326,6 +331,13 @@ async def firebase_register(request: FirebaseRegisterRequest, db: Session = Depe
         print(f"✓ Apellido validado: {apellido_validado}")
     except HTTPException as e:
         print(f"❌ Error validando apellido: {e.detail}")
+        raise
+
+    try:
+        id_estudiante_validado = validar_id_estudiante(request.id_estudiante)
+        print(f"✓ ID estudiante validado: {id_estudiante_validado}")
+    except HTTPException as e:
+        print(f"❌ Error validando ID estudiante: {e.detail}")
         raise
     
     # 1. Verificar token de Firebase
@@ -365,6 +377,7 @@ async def firebase_register(request: FirebaseRegisterRequest, db: Session = Depe
         email=email_validado,
         nombre=nombre_validado,
         apellido=apellido_validado,
+        id_estudiante=id_estudiante_validado,
         firebase_uid=firebase_uid,
         password_hash="",  # Firebase maneja las contraseñas
         is_active=True

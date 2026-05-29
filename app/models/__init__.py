@@ -12,6 +12,7 @@ class Usuario(Base):
     password_hash = Column(String(255), nullable=False)
     nombre = Column(String(100), nullable=False)
     apellido = Column(String(100), nullable=False)
+    id_estudiante = Column(String(20), unique=True, index=True, nullable=True)
     firebase_uid = Column(String(255), unique=True, nullable=True, index=True)  # UID de Firebase
     is_active = Column(Boolean, default=True)
     is_admin = Column(Boolean, default=False)  # Campo para identificar administradores

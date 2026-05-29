@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from .routers import auth, recommendations, mallas, cursos, admin, load_test
+from .routers import auth, recommendations, mallas, cursos, admin, load_test, assistant
 from .database import engine, Base
 from .config import settings
 from .firebase_config import initialize_firebase
@@ -47,6 +47,7 @@ app.include_router(mallas.router, prefix="/api/mallas", tags=["Mallas"])
 app.include_router(cursos.router, prefix="/api/cursos", tags=["Cursos"])
 app.include_router(admin.router, prefix="/api/admin", tags=["Administración"])
 app.include_router(load_test.router, prefix="/api/load-test", tags=["Load Testing"])  # Sin autenticación
+app.include_router(assistant.router, prefix="/api/assistant", tags=["Asistente"])
 
 
 @app.get("/")
