@@ -7,17 +7,14 @@ import google.generativeai as genai
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import SystemMessage, HumanMessage
 from ..config import settings
-from ..models import Curso
 
 
 class AssistantService:
     def __init__(self) -> None:
-        genai.configure(api_key=settings.GEMINI_API_KEY)
         self.model = ChatGoogleGenerativeAI(
             model=settings.GEMINI_CHAT_MODEL,
             google_api_key=settings.GEMINI_API_KEY,
             temperature=0.3,
-            max_output_tokens=512,
         )
         self.system_prompt = (
             "Eres un asistente academico de la UPAO. Ayudas con reglas curriculares, prerequisitos, "
@@ -25,9 +22,7 @@ class AssistantService:
             "- Nunca pides contrasenas, tokens ni credenciales.\n"
             "- No realizas acciones de administrador ni cambias permisos.\n"
             "- Si falta informacion, preguntas por datos academicos, no por credenciales.\n"
-            "- Respondes en espanol, claro y directo, con respuestas breves y accionables.\n"
-            "- Si no hay evidencia suficiente, pide una aclaracion concreta.\n"
-            "- No inventes cursos. Si un curso no esta en la malla, dilo explicitamente.\n"
+            "- Respondes en espanol, claro y directo.\n"
         )
 
     def chat(
@@ -35,8 +30,7 @@ class AssistantService:
         db: Session,
         message: str,
         malla_id: Optional[int],
-        cursos_aprobados: Optional[List[str]],
-        cursos_aprobados_multi_malla: Optional[List[dict]] = None
+        cursos_aprobados: Optional[List[str]]
     ) -> Tuple[str, List[dict]]:
         cleaned_message = message.strip()
         if not cleaned_message:
@@ -51,34 +45,23 @@ class AssistantService:
 
         rules_context = self._get_malla_rules(db, malla_id)
         resumen_malla = self._get_malla_summary(db, malla_id)
-        cursos_malla = self._get_malla_courses(db, malla_id)
         rag_sources = self._retrieve_rag(db, cleaned_message, settings.RAG_TOP_K)
 
         prompt = self._build_prompt(
             message=cleaned_message,
             rules_context=rules_context,
             resumen_malla=resumen_malla,
-            cursos_malla=cursos_malla,
             cursos_aprobados=cursos_aprobados or [],
-            cursos_aprobados_multi_malla=cursos_aprobados_multi_malla or [],
             rag_sources=rag_sources,
         )
 
-        try:
-            response = self.model.invoke(
-                [
-                    SystemMessage(content=self.system_prompt),
-                    HumanMessage(content=prompt),
-                ]
-            )
-            answer = response.content.strip() if response and response.content else "No pude generar una respuesta."
-        except Exception as exc:
-            print(f"⚠️  Error en el modelo Gemini: {exc}")
-            answer = (
-                "El servicio de IA no esta disponible por ahora. "
-                "Verifica que la configuracion de Gemini este activa e intenta de nuevo."
-            )
-            rag_sources = []
+        response = self.model.invoke(
+            [
+                SystemMessage(content=self.system_prompt),
+                HumanMessage(content=prompt),
+            ]
+        )
+        answer = response.content.strip() if response and response.content else "No pude generar una respuesta."
 
         return answer, rag_sources
 
@@ -146,13 +129,6 @@ class AssistantService:
             "total_cursos": row.total_cursos,
             "total_creditos": row.total_creditos,
         }
-
-    def _get_malla_courses(self, db: Session, malla_id: Optional[int]) -> List[str]:
-        if not malla_id:
-            return []
-
-        cursos = db.query(Curso).filter(Curso.malla_id == malla_id).order_by(Curso.ciclo, Curso.codigo).all()
-        return [f"{curso.codigo} - {curso.nombre}" for curso in cursos]
 
     def _retrieve_rag(self, db: Session, query: str, top_k: int) -> List[dict]:
         if top_k <= 0:
@@ -222,9 +198,7 @@ class AssistantService:
         message: str,
         rules_context: dict,
         resumen_malla: dict,
-        cursos_malla: List[str],
         cursos_aprobados: List[str],
-        cursos_aprobados_multi_malla: List[dict],
         rag_sources: List[dict],
     ) -> str:
         rules_lines = []
@@ -248,34 +222,21 @@ class AssistantService:
         approved_count = len(cursos_aprobados)
         cursos_list = ", ".join(cursos_aprobados[:30]) if cursos_aprobados else "(no proporcionado)"
 
-        multi_malla_count = len(cursos_aprobados_multi_malla)
-        multi_malla_preview = ", ".join(
-            f"{item.get('codigo')}({item.get('malla_origen_anio')})"
-            for item in cursos_aprobados_multi_malla[:20]
-        ) if cursos_aprobados_multi_malla else "(no proporcionado)"
-
         rag_text = "\n".join(
             f"[Fuente {idx + 1}] {src.get('title') or src.get('source') or 'Documento'}\n{src.get('content', '')}"
             for idx, src in enumerate(rag_sources)
         )
 
-        cursos_malla_text = "\n".join(cursos_malla) if cursos_malla else "(sin cursos de malla)"
-
         prompt = f"""
     Contexto del estudiante:
-- Cursos aprobados (malla actual): {approved_count}
+- Cursos aprobados: {approved_count}
 - Lista de cursos aprobados: {cursos_list}
-- Cursos aprobados multi-malla: {multi_malla_count}
-- Lista multi-malla: {multi_malla_preview}
 
 Reglas de malla:
 {chr(10).join(rules_lines) if rules_lines else '- (sin reglas cargadas)'}
 
 Resumen de malla:
 {chr(10).join(resumen_lines) if resumen_lines else '- (sin resumen)'}
-
-Cursos de la malla (usa solo estos para recomendaciones):
-{cursos_malla_text}
 
 Fuentes RAG (si existen):
 {rag_text if rag_text else '(sin fuentes)'}
@@ -284,10 +245,9 @@ Pregunta del estudiante:
 {message}
 
 Instrucciones de respuesta:
-- Usa las fuentes RAG si existen. Si no hay fuentes, responde con reglas conocidas y pide confirmacion puntual.
+- Usa las fuentes RAG si existen. Si no hay fuentes, responde con las reglas conocidas y pide confirmacion.
 - Si la consulta pide credenciales o admin, rechaza y redirige a temas academicos.
-- Responde en 4-8 lineas maximo, directo y con pasos accionables cuando aplique.
-- Si no puedes concluir, pide 1 dato especifico.
+- Responde con pasos accionables cuando aplique.
 """
         return prompt.strip()
 

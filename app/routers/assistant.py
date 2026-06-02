@@ -27,7 +27,6 @@ async def chat_assistant(
         message=request.message,
         malla_id=request.malla_id,
         cursos_aprobados=request.cursos_aprobados,
-        cursos_aprobados_multi_malla=request.cursos_aprobados_multi_malla,
     )
 
     return AssistantChatResponse(

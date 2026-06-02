@@ -72,15 +72,6 @@ async def create_recommendation(
             malla_destino_anio=malla.anio,
             cursos_aprobados_multi_malla=cursos_multi_dict
         )
-
-        if not cursos_ids:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "mensaje": "No se pudieron convalidar cursos a la malla destino.",
-                    "convalidacion": info_convalidacion,
-                }
-            )
         
         if info_convalidacion["cursos_sin_convalidacion"] > 0:
             print(f"⚠️ Advertencia: {info_convalidacion['cursos_sin_convalidacion']} cursos sin convalidación")
@@ -614,7 +605,7 @@ async def comparar_algoritmos(
 
     # 3. Obtener cursos disponibles
     cursos_disponibles = obtener_cursos_disponibles(
-        db, request.malla_id, request.cursos_aprobados
+        db, request.malla_id, cursos_aprobados_ids
     )
     
     max_creditos = 22
